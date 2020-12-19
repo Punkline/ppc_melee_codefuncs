@@ -1,0 +1,721 @@
+-==-
+
+Scaled Casting Functions
+[Punkline]
+# --- SCALED INT <> FLOAT CASTING
+
+# --- FLOATS - these are single-precision floating points, and can be casted 1 or 2 at a time:
+#  float - 32-bit floating point (pair)
+#        - 9999.9999,  9999.9999
+# - all floating point registers are actually pair tuples, holding 2 32-bit values
+# - if only 1 float is being handled, the pair will be duplicates of the same number
+
+# --- FULL INTS - these can only be casted 1 at a time:
+#  u32 - unsigned 32-bit int
+#      -  0xFFFFFFFF
+
+#  s32 -   signed 32-bit int
+#      - -0x7FFFFFFF
+
+# --- SMALL INTS - these can be casted 1 or 2 at a time:
+#  u16 - unsigned 16-bit int
+#      -  0xFFFF,  0xFFFF
+
+#  s16 -   signed 16-bit int
+#      - -0x7FFF, -0x7FFF
+
+#  u8  - unsigned  8-bit int
+#      -    0xFF,    0xFF
+
+#  s8  -   signed  8-bit int
+#      -   -0x7F,   -0x7F
+
+
+# --- SCALE
+# Integers are 'fixed points' with a scale of 0
+#  'scale' refers to the implied 'exponent', which can be thought of as a number of 'fraction' bits
+#  - the exponent is a power of 2, so you may think of changes in the exponent as bitwise 'shifts'
+
+# A positive scale determines the number of bits in the integer are a fractional component
+#  u16_8  - 16-bit int has 8 bits dedicated to a fraction
+#         - 0xFF.FF,  0xFF.FF
+
+# A positive scale >= the number of bits in the integer will be entirely fractional
+#  u16_20 - 16-bit int has 20 bits (4 of them abstract) dedicated to a fraction
+#         - 0x00000.0FFFF,  0x00000.0FFFF
+
+# A negative scale will create an abstractly large integer number
+#  u16_-4 - 16-bit int has -4 bits dedicated to a fraction (creating an abstract 'shift')
+#         - 0xFFFF0.00000,  0xFFFF0.00000
+
+# In each of these cases, the represented data is a normal 16-bit int.
+# The scales are applied as these ints get loaded/stored in a special quantized casting routine
+
+
+
+# --- FUNCTIONS NAMES
+# float.*   - r3 = int to cast into a float
+# - these functions create floating points from an integer of a type described by *
+
+# *.float   - f1 = float to cast into an int
+# - these function create integers of a type described by *, from floats
+
+# qr7.*     - r3 = scale to apply to GQR7
+# - these functions can generate a casting scale for manual casting between ints<>floats using GQR7
+
+# * represents an integer type_scale keyword:
+
+
+# --- FUNCTION NAME KEYWORDS - for *
+# The following premade scale types are available (for filling in *):
+#   *             .        QR used/returned
+# - u8          FF.      # QR2 - dedicated casting scales
+# - u16       FFFF.      # QR3
+# - s8         -7F.      # QR4
+# - s16      -7FFF.      # QR5
+# - s32  -7FFFFFFF.      # no QR - these are not destructive to QR contents
+
+# An underscore '_' suffix denotes a non-0 fractional component that scales the integer:
+#   *             .
+# - s32_16   -7FFF.FFFF  # no QR
+# - s16_4     -7FF.F     # QR7 - premade hword scales
+# - s16_8      -7F.FF    # QR7
+# - s16_12      -7.FFF   # QR7
+# - u16_16        .FFFF  # QR7
+# - u8_8          .FF    # QR7 - premade byte scales
+# - u8_4         F.F     # QR7
+# - s8_4        -7.F     # QR7 - all of these (besides s32_16) return the generated scale in QR7
+
+# Additionally, these types may be used to specify or reuse a more specific scale:
+#   *
+# - u8_       # QR7 - custom scale passed in r3 or r4, and returned in qr7
+# - u16_      # QR7
+# - s8_       # QR7
+# - s16_      # QR7
+# - u8_qr7    # QR7 - custom scale/type in qr7 is reused
+# - u16_qr7   # QR7
+# - s8_qr7    # QR7
+# - s16_qr7   # QR7
+
+
+# --- QR7 - for saving and reusing scales
+# QR7 is a volatile quantization register that's used to define the scales used in these casts
+# - when using a custom scale, it will be returned in QR7, and may be reused
+#   - functions types that end with _qr7 will utilize the current scale
+#   - paired singles instructions can load/store using qr7, directly
+
+
+
+# Example calls:
+
+# These cast Floats into Ints:
+# --- bl <s16.float>     - f1  = float or [pair] to cast to r3 or [r3, r0]
+# --- bl <s16_8.float>
+# --- bl <s16_.float>    - r3  = explicit scale argument
+# --- bl <s16_qr7.float> - qr7 = explicit scale argument
+# Pairs are split into r3 and r0 after casting, to distinguish them
+#   f1 = [First, Second] - input
+#   r0 = Second          - extra output (can be discarded if not using)
+#   r3 = First           - output
+# - if f1 is a pair of distinct floats, each will be casted -- with the second returned in r0
+
+
+# These cast Ints into Floats:
+# --- bl <float.s16>     - r3  = int or [pair] to cast to f1  or [f1, f0]
+# --- bl <float.s16_8>
+# --- bl <float.s16_>    - r4  = explicit scale argument
+# --- bl <float.s16_qr7> - qr7 = explicit scale argument
+# - pairs create a 2x2 complementary matrix that can be accessed as both pairs and/or singles:
+#   r3 = [High, Low]  - input
+#   f0 = [High, Low]  - extra output (can be discarded if not using)
+#   f1 = [Low, High]  - transposed output
+# - operating on single floats from f0 and f1 will use only the first float in the tuple pair
+# - f1 output is transposed to allow only Low of r3 to be invoked as first float in the tuple pair
+#   - in cases where only 1 float is being casted, this makes Low available without ps_ instructions
+
+
+# These prepare QR7 for manual casting, or with custom scales:
+# --- bl <qr7.s16_8>     - set QR7 without casting anything
+# --- bl <qr7.s16_>      - r3 = explicit scale argument
+# --- bl <qr7.backup>    - returns r3 = raw data in QR7 (backup the current scale)
+# --- bl <qr7.restore>   - r3 = raw data to move to QR7 (restore backup)
+# - these can set up QR7 for manual casting, or saving and restoring the state of QR
+# - you do not need to use qr7 if using the above convenience functions
+
+
+
+# --- FULL CASTING - 32-bit -- solo
+# These functions use the double-precision subtraction method of casting
+# - each produces only 1 result, but it may be used as a duplicate pair in ps instructions
+
+# WORDS:   u32*, s32*
+# to float...
+# +   FFFFFFFF : r3 -> f1
+
+# from float...
+# +   FFFFFFFF : r3 <- f1
+
+# float.s64     rInt_high, rInt_low
+# float.s32     rInt
+# float.u32     rInt
+# float.s32_    rInt, rScale
+# float.u32_    rInt, rScale
+# float.s32_16  rInt
+# float.u32_16  rInt
+# u64.double    fDouble
+# s32.float     fFloat
+# u32.float     fFloat
+# s32_.float    fFloat, rScale
+# u32_.float    fFloat, rScale
+# s32_16.float  fFloat
+# u32_16.float  fFloat
+
+# Float <- Int
+
+<float.s64> NTSC 1.02
+mflr r0
+stwu sp, -0x100(sp)
+stw  r0,  0x100+4(sp)
+stw r10, 0x2C(sp)
+addi r10, sp, 0x10
+stswi r3, r10, 0x1C
+bl 0x80322da0
+addi r10, sp, 0x10
+lswi r3, r10, 0x1C
+lwz r10, 0x2C(sp)
+lwz  r0,  0x100+4(sp)
+addi sp, sp, 0x100
+mtlr r0
+blr
+
+<float.s32> ALL
+li r0, 0
+b <float.__s32_fullcast>
+
+<float.s32_> ALL
+mr r0, r4
+b <float.__s32_fullcast>
+
+<float.u32> ALL
+li r0, 0
+b <float.__u32_fullcast>
+
+<float.u32_> ALL
+mr r0, r4
+b <float.__u32_fullcast>
+
+<float.u32_16> ALL
+li r0, 16
+b <float.__u32_fullcast>
+
+<float.s32_16> ALL
+li r0, 16
+b <float.__s32_fullcast>
+
+# Int <- Float
+<u64.double> NTSC 1.02
+mflr r0
+stwu sp, -0x100(sp)
+stw  r0,  0x100+4(sp)
+stw r10, 0x2C(sp)
+addi r10, sp, 0x18
+stswi r5, r10, 0x14
+bl 0x80322e54
+addi r10, sp, 0x18
+lswi r5, r10, 0x14
+lwz r10, 0x2C(sp)
+lwz  r0,  0x100+4(sp)
+addi sp, sp, 0x100
+mtlr r0
+blr
+
+
+
+<s32.float> ALL
+li r0, 0
+b <s32.__fullcast>
+
+<s32_.float> ALL
+mr r0, r3
+b <s32.__fullcast>
+
+<u32.float> ALL
+li r0, 0
+b <u32.__fullcast>
+
+<u32_.float> ALL
+mr r0, r3
+b <u32.__fullcast>
+
+<u32_16.float> ALL
+li r0, 16
+b <u32.__fullcast>
+
+<s32_16.float> ALL
+li r0, 16
+b <u32.__fullcast>
+
+
+
+
+# --- SMALL CASTING - 16-bit and 8-bit -- paired
+# Uses Graphical Quantization Registers and Paired Singles instructions for fast, efficient casting
+# - only works on integers 16 bits and smaller, but may operate on a pair of values
+
+# BYTES:   u8*, s8*
+# to float...
+# +   000000FF : r3 -> f1[0]   -- also f0[1]
+# +   0000FF00 : r3 -> f1[1]   -- also f0[0]
+
+# from float...
+# +   000000FF : r3 <- f1[0]
+# +   000000FF : r0 <- f1[1]
+
+# float.s8      rInt
+# float.u8      rInt
+# float.s8_     rInt, rScale
+# float.u8_     rInt, rScale
+# float.s8_qr7  rInt
+# float.u8_qr7  rInt
+# float.s8_4    rInt
+# float.u8_4    rInt
+# float.u8_8    rInt
+# s8.float      fFloat
+# u8.float      fFloat
+# s8_.float     fFloat, rScale
+# u8_.float     fFloat, rScale
+# s8_qr7.float  fFloat
+# u8_qr7.float  fFloat
+# s8_4.float    fFloat
+# u8_4.float    fFloat
+# u8_8.float    fFloat
+# qr7.s8_4      --
+# qr7.u8_4      --
+# qr7.u8_8      --
+
+
+# HWORDS:  u16*, s16*
+# to float...
+# +   0000FFFF : r3 -> f1[0]   -- also f0[1]
+# +   FFFF0000 : r3 -> f1[1]   -- also f0[0]
+
+# from float...
+# +   0000FFFF : r3 <- f1[0]
+# +   0000FFFF : r0 <- f1[1]
+
+# Using pairs is optional:
+# - f1[0] and f0[0] can be accessed by normal floating point instructions
+# - f1[1] and f0[1] can be accessed by paired singles instructions
+
+# float.s16      rInt
+# float.u16      rInt
+# float.s16_     rInt, rScale
+# float.u16_     rInt, rScale
+# float.s16_qr7  rInt
+# float.u16_qr7  rInt
+# float.s16_4    rInt
+# float.s16_8    rInt
+# float.s16_12   rInt
+# float.u16_16   rInt
+# s16.float      fFloat
+# u16.float      fFloat
+# s16_.float     fFloat, rScale
+# u16_.float     fFloat, rScale
+# s16_qr7.float  fFloat
+# u16_qr7.float  fFloat
+# s16_4.float    fFloat
+# s16_8.float    fFloat
+# s16_12.float   fFloat
+# u16_16.float   fFloat
+# qr7.s16_4      --
+# qr7.s16_8      --
+# qr7.s16_12     --
+# qr7.u16_16     --
+# qr7.backup     --
+# qr7.restore    rQR
+
+
+
+# Float <- Int
+
+# fastcast
+<float.s8> ALL
+stwu sp, -0x20(sp)
+sth r3, 0x8(sp)
+psq_l f0, 0x8(sp), 0, 2
+b <float.__transpose>
+
+<float.s16> ALL
+stwu sp, -0x20(sp)
+stw r3, 0x8(sp)
+psq_l f0, 0x8(sp), 0, 3
+b <float.__transpose>
+
+<float.u8> ALL
+stwu sp, -0x20(sp)
+sth r3, 0x8(sp)
+psq_l f0, 0x8(sp), 0, 4
+b <float.__transpose>
+
+<float.u16> ALL
+stwu sp, -0x20(sp)
+stw r3, 0x8(sp)
+psq_l f0, 0x8(sp), 0, 5
+b <float.__transpose>
+
+
+# custom scale from r4
+<float.u8_> ALL
+li r0, 4
+rlwimi r0, r4, 8, 0x3F00
+rlwimi r0, r0, 16, 0xFFFF0000
+mtspr 919, r0
+b <float.u8_qr7>
+
+<float.u16_> ALL
+li r0, 5
+rlwimi r0, r4, 8, 0x3F00
+rlwimi r0, r0, 16, 0xFFFF0000
+mtspr 919, r0
+b <float.u16_qr7>
+
+<float.s8_> ALL
+li r0, 6
+rlwimi r0, r4, 8, 0x3F00
+rlwimi r0, r0, 16, 0xFFFF0000
+mtspr 919, r0
+b <float.s8_qr7>
+
+<float.s16_> ALL
+li r0, 7
+rlwimi r0, r4, 8, 0x3F00
+rlwimi r0, r0, 16, 0xFFFF0000
+mtspr 919, r0
+b <float.s16_qr7>
+
+
+# custom scales through qr7
+<float.s16_qr7> ALL
+stwu sp, -0x20(sp)
+stw r3, 0x8(sp)
+psq_l f0, 0x8(sp), 0, 7
+b <float.__transpose>
+
+<float.u16_qr7> ALL
+b <float.s16_qr7>
+
+<float.s8_qr7> ALL
+stwu sp, -0x20(sp)
+sth r3, 0x8(sp)
+psq_l f0, 0x8(sp), 0, 7
+b <float.__transpose>
+
+<float.u8_qr7> ALL
+b <float.s8_qr7>
+
+
+
+# --- Float to Int
+
+# fastcast
+<s8.float> ALL
+stwu sp, -0x20(sp)
+psq_st f1, 0x8(sp), 0, 2
+b <s8.__transpose>
+
+<s16.float> ALL
+stwu sp, -0x20(sp)
+psq_st f1, 0x8(sp), 0, 3
+b <s16.__transpose>
+
+<u8.float> ALL
+stwu sp, -0x20(sp)
+psq_st f1, 0x8(sp), 0, 4
+b <u8.__transpose>
+
+<u16.float> ALL
+stwu sp, -0x20(sp)
+psq_st f1, 0x8(sp), 0, 5
+b <u16.__transpose>
+
+
+# custom scale from r3
+<u8_.float> ALL
+li r0, 4
+rlwimi r0, r3, 8, 0x3F00
+rlwimi r0, r0, 16, 0xFFFF0000
+mtspr 919, r0
+b <u8_qr7.float>
+
+<u16_.float> ALL
+li r0, 5
+rlwimi r0, r3, 8, 0x3F00
+rlwimi r0, r0, 16, 0xFFFF0000
+mtspr 919, r0
+b <u16_qr7.float>
+
+<s8_.float> ALL
+li r0, 6
+rlwimi r0, r3, 8, 0x3F00
+rlwimi r0, r0, 16, 0xFFFF0000
+mtspr 919, r0
+b <s8_qr7.float>
+
+<s16_.float> ALL
+li r0, 7
+rlwimi r0, r3, 8, 0x3F00
+rlwimi r0, r0, 16, 0xFFFF0000
+mtspr 919, r0
+b <s16_qr7.float>
+
+
+# custom scale/type from qr7
+<s8_qr7.float> ALL
+stwu sp, -0x20(sp)
+psq_st f1, 0x8(sp), 0, 7
+b <s8.__transpose>
+
+<s16_qr7.float> ALL
+stwu sp, -0x20(sp)
+psq_st f1, 0x8(sp), 0, 7
+b <s16.__transpose>
+
+<u8_qr7.float> ALL
+stwu sp, -0x20(sp)
+psq_st f1, 0x8(sp), 0, 7
+b <u8.__transpose>
+
+<u16_qr7.float> ALL
+stwu sp, -0x20(sp)
+psq_st f1, 0x8(sp), 0, 7
+b <u16.__transpose>
+
+
+
+# --- qr7 custom scales
+# custom scales from r3
+<qr7.u8_> ALL
+li r0, 4
+b <qr7.__custom_scale>
+
+<qr7.u16_> ALL
+li r0, 5
+b <qr7.__custom_scale>
+
+<qr7.s8_> ALL
+li r0, 6
+b <qr7.__custom_scale>
+
+<qr7.s16_> ALL
+li r0, 7
+b <qr7.__custom_scale>
+
+
+
+
+# --- Premade Scales
+# Use these to cast with as few requirements as possible using in a handful of convenient scales
+
+# float <- int
+<float.s8_4> NTSC 1.02
+li r4, 4
+b <float.s8_>
+
+<float.u8_4> ALL
+li r4, 4
+b <float.u8_>
+
+<float.u8_8> ALL
+li r4, 8
+b <float.u8_>
+
+<float.s16_4> ALL
+li r4, 4
+b <float.s16_>
+
+<float.s16_8> ALL
+li r4, 8
+b <float.s16_>
+
+<float.s16_12> ALL
+li r4, 12
+b <float.s16_>
+
+<float.u16_16> ALL
+li r4, 16
+b <float.u16_>
+
+
+# int <- float
+<s8_4.float> ALL
+li r3, 4
+b <s8_.float>
+
+<u8_4.float> ALL
+li r3, 4
+b <u8_.float>
+
+<u8_8.float> ALL
+li r3, 8
+b <u8_.float>
+
+<s16_4.float> ALL
+li r3, 4
+b <s16_.float>
+
+<s16_8.float> ALL
+li r3, 8
+b <s16_.float>
+
+<s16_12.float> ALL
+li r3, 12
+b <s16_.float>
+
+<u16_16.float> ALL
+li r3, 16
+b <u16_.float>
+
+# qr7 <- r3
+<qr7.s8_4> ALL
+li r3, 4
+b <qr7.s8_>
+
+<qr7.u8_4> ALL
+li r3, 4
+b <qr7.u8_>
+
+<qr7.u8_8> ALL
+li r3, 8
+b <qr7.u8_>
+
+<qr7.s16_4> ALL
+li r3, 4
+b <qr7.s16_>
+
+<qr7.s16_8> ALL
+li r3, 8
+b <qr7.s16_>
+
+<qr7.s16_12> ALL
+li r3, 12
+b <qr7.s16_>
+
+<qr7.u16_16> ALL
+li r3, 16
+b <qr7.u16_>
+
+<qr7.backup> ALL
+mfspr r3, 919
+blr
+
+<qr7.restore> ALL
+mtspr 919, r3
+blr
+
+# --- Hidden layer
+# - these functions are hubs that handle multiple different branch-in prologs
+# - their format helps save space while still being able to provide all of these functions
+
+<float.__fullcast> ALL
+# Hidden epilog cast full 32-bit ints using the double precision subtraction method
+stw r4, 0xC(sp)
+slwi r0, r0, 4
+subfic r0, r0, 0x4330
+slwi r0, r0, 16
+stw r0, 0x8(sp)
+lfd f0, 0x8(sp)
+stw r3, 0xC(sp)
+lfd f1, 0x8(sp)
+lwz r4, 0x10(sp)
+fsub f1, f1, f0
+addi sp, sp, 0x20
+blr
+
+<float.__s32_fullcast> ALL
+stwu sp, -0x20(sp)
+stw r4, 0x10(sp)
+xoris r3, r3, 0x8000
+lis r4, 0x8000
+b <float.__fullcast>
+
+<float.__u32_fullcast> ALL
+stwu sp, -0x20(sp)
+stw r4, 0x10(sp)
+li r4, 0
+b <float.__fullcast>
+
+
+<float.__transpose> ALL
+# Hidden epilog handles all leaf float conversions of pairs that need to be transposed
+ps_merge10 f1, f0, f0
+addi sp, sp, 0x20
+blr
+
+<qr7.__copy_low> ALL
+# Hidden epilog handles copying low bits of QR register, setting it, and returning
+rlwimi r0, r0, 16, 0xFFFF0000
+mtspr 919, r0
+blr
+
+<qr7.__custom_scale> ALL
+# Hidden handler function for custom scale QR7 scale assignments
+rlwimi r0, r3, 8, 0x3F00
+b <qr7.__copy_low>
+
+<u16.__transpose> ALL
+# Hidden epilogs handle various int types when splitting quantized store
+lhz r3, 0x8(sp)
+lhz r0, 0xA(sp)
+addi sp, sp, 0x20
+blr
+<s8.__transpose> ALL
+lbz r3, 0x8(sp)
+lbz r0, 0x9(sp)
+extsb r3, r3
+addi sp, sp, 0x20
+extsb r4, r4
+blr
+<s16.__transpose> ALL
+lha r3, 0x8(sp)
+lha r0, 0xA(sp)
+addi sp, sp, 0x20
+blr
+<u8.__transpose> ALL
+lbz r3, 0x8(sp)
+lbz r0, 0x9(sp)
+addi sp, sp, 0x20
+blr
+
+<int.__fullcast> ALL
+# Hidden handler makes a scaled fixed point cast from float -> int
+rlwimi r3, r0, 8, 0x3F00       # load scale
+stwu sp, -0x20(sp)
+mfspr r0, 919                  # backup old scale
+addi r3, r3, -0x1000           # set up high scale
+stw r0, 0x18(sp)
+rlwimi r3, r3, 16, 0xFFFF0000  # copy store params to load params
+mtspr 919, r3                  # apply high scale
+addi r3, r3, 0x1000            # set up low scale
+psq_st f1, 0x8(sp), 1, 7       # store quantized pair with high scale
+lis r0, 5
+psq_l f0, 0x8(sp), 1, 7        # load dequantized pair with high scale
+rlwimi r3, r0, 0, 0xFF0000     # set low scale to unsigned
+mtspr 919, r3                  # apply low scale
+fsubs f0, f1, f0               # get difference from high scale dequant from unscaled raw
+psq_st f0, 0xA(sp), 1, 7       # store quantized pair of remainder with low scale
+lha r0, 0x8(sp)
+lhz r3, 0xA(sp)                # we need to add/subtract low to high base on sign of high
+slwi. r0, r0, 16
+bge+ 0f
+  addis r3, r3, -0x1                   # subtract if high is below 0
+0: add r3, r3, r0
+lwz r0, 0x18(sp)
+mtspr 919, r0                  # load 32-bit int in return register
+addi sp, sp, 0x20
+blr
+<u32.__fullcast> ALL
+li r3, 5
+b <int.__fullcast>
+<s32.__fullcast> ALL
+li r3, 7
+b <int.__fullcast>

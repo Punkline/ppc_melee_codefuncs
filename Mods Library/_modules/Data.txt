@@ -1,0 +1,374 @@
+-==-
+
+Data Functions
+[Punkline]
+
+
+
+# --- DATA COPYING/FILLING
+
+<zero> NTSC 1.02
+# Zeroes out a given area by n bytes
+
+# --- args:
+# r3 = rData
+# r4 = rLength
+b 0x8000c160
+
+
+
+<fill> NTSC 1.02
+# Fills out a given area by n bytes with a given byte value
+
+# --- args:
+# r3 = rData
+# r4 = rFill
+# r5 = rLength
+b 0x80003130
+
+
+
+<copy> NTSC 1.02
+# Copies data from r4 over to r3
+# - ARAM addresses may be used in place of Virtual RAM addresses, but are much slower
+
+# --- args:
+# r3 = rCopy  - Copy data TO this address
+# r4 = rFrom  - Copy data FROM this address
+# r5 = rLength
+2C030000 40800010 2C040000 40800008
+b 0x800031f4
+b <copy.ARAM_sync>
+
+
+
+
+<copy.ARAM_sync> NTSC 1.02
+# Copies data from r4 over to r3, allowing for ARAM addresses
+# - CPU will wait until ARAM hardware has synced with RAM
+
+# --- args:
+# r3 = rCopy  - Copy data TO this address
+# r4 = rFrom  - Copy data FROM this address
+# r5 = rLength
+38C0FFFF
+b <copy.ARAM_async>
+
+
+
+<copy.ARAM_async> NTSC 1.02
+# Copies data from r4 over to r3, allowing for ARAM addresses and sync callbacks
+# - If a -1 is used in place of a callback address, this will become a sync copy instead of async
+# - otherwise, the CPU will not wait for ARAM on return, allowing for immediate action
+#   - the data being copied however will not be available for processing until ARAM has synced
+
+# --- args:
+# r3 = rCopy  - Copy data TO this address
+# r4 = rFrom  - Copy data FROM this address
+# r5 = rLength
+# r6 = rSync  - sync callback, executes once the ARAM copy has finished
+# r7 = rArg   - sync callback argument, gets passed as r3 to rSync when executed
+7C0802A6 9421FFC0 90010044 48000018 4E800021 38000001 90030000 4E800020 00000000 2C06FFFF 40820034 4BFFFFE5 7CC802A6 38000000 38E6000C 90070000 90E10010 4800002D 80610010 80030000 2C000000 4082000C 4BFFFFF0 48000015 80010044 38210040 7C0803A6 4E800020 7C0802A6 3D008043 90010004 9421FFA8 BEE10034 7C992378 7C7A1B79 7CBB2B78 7CD73378 7CF83B78 3BE816C0 7F64DB78 40800014 3BA00001 7F43D378
+bl 0x803447DC
+48000010 3BA00000 7F23CB78
+bl 0x80344840
+bl 0x80347364
+3BC30000 839F01E0 92FC0028 931C002C 7FB7EB78 3BBF01E0 801C0000 901D0000 387F01E4 48000008 7C030378 80030000 28000000 4082FFF4 93830000 38600000 38800001 907C0000 909C0004 3C608001 39434AC4 387C0008 7F84E378 7EE5BB78 68A60001 7F27CB78 7F48D378 7F69DB78
+b 0x80014c90
+
+
+<strcmp> NTSC 1.02
+# compares 2 null terminated strings A and B
+
+# --- args:
+# r3 = rA
+# r4 = rB
+
+# --- returns:
+# r3 = rCmp
+#      - 1 if equal, 0 if not equal
+b 0x803258e8
+
+
+
+<strncmp> NTSC 1.02
+# Compares 2 strings of a given length
+
+# --- args:
+# r3 = rA
+# r4 = rB
+# r5 = rLength
+
+# --- returns:
+# r3 = rCmp
+#      - 1 if equal, 0 if not equal
+b 0x803258a8
+
+
+<flush_DC> NTSC 1.02
+# Flush the data cache in given range
+# - useful for some forms of hardware reads, like GX indexing
+
+# --- args:
+# r3 = start address
+# r4 = number of bytes to flush
+b 0x8034480c
+
+
+<flush_IC> NTSC 1.02
+# Flush the instruction cache in given range
+# - required if writing new instructions over old instructions
+
+# --- args:
+# r3 = start address
+# r4 = number of bytes to flush
+b 0x8000543c
+
+
+# --- POINTER GENERATION AND RELOCATION
+
+<point.here> ALL
+# Returns the RAM address of the instruction that comes after the one calling this function
+# - takes no arguments, just uses lr
+
+# --- returns:
+# r3 = rPC
+
+## example:
+# bl <point.here>
+# _here:
+7C6802A6 4E800020
+
+
+
+<point.inline> ALL
+# Returns <point.here> value + 4 -- for reaching branched-over inline data
+
+# --- returns:
+# r3 = rInline
+
+## example:
+# bl <point.inline>
+# b _data_end
+# _data_start:
+## <- data goes here
+# _data_end:
+7C6802A6 38630004 4E800020
+
+
+
+<reloc> ALL
+# Takes input pointer to an offset value and converts it into a RAM pointer
+# --- args:
+# r3 = address of offset value to relocate (to base)
+# r4 = base address tp relocate to, if target is not a branch instruction
+# - r4 is ignored if branches are found, using r3 instead
+
+# --- returns:
+# r3 = rPoint
+# r4 = rBase
+# r5 = rDest
+# r6 = rOld
+# --- Pointers with an offset of 0 will be treated as nulls
+# cr bit 4 = bNull # cr1.lt  -- only true if a null was detected
+# cr bit 6 = bAlreadyRelocated # cr1.eq
+
+# If rPoint arg points to a branch instruction, rBase automatically gets set to rPoint
+# - this means branches do not need to provide an r4 argument, and will use self location
+#   - branches that use the low 2-bit byte indices will be accepted as valid relative offsets
+
+# If rPoint is not a branch, then rBase will become the base of the relocation, for offset
+
+# If rPoint has been relocated on this call, then rOld will have its unrelocated value
+# - cr1.eq will also be returned as false
+3CE00800
+b <reloc.__flag_null>
+
+
+
+<point> ALL
+# Returns the destination normally applied by <reloc> -- but without writing a new pointer
+# --- args:
+# r3 = address of offset value to relocate (to base)
+# r4 = base address tp relocate to, if target is not a branch instruction
+# - r4 is ignored if branches are found, using r3 instead
+
+# --- returns:
+# r3 = rPoint
+# r4 = rBase
+# r5 = rDest
+# r6 = rVal - value that would have been relocated if this were <reloc>
+# --- Pointers with an offset of 0 will be treated as nulls
+# cr bit 4 = bNull # cr1.lt  -- only true if a null was detected
+# cr bit 6 = bAlreadyRelocated # cr1.eq
+3CE00800
+b <point.__flag_null>
+
+
+
+<reloc.zero> ALL
+# A variation of <reloc> that allows for 0-index offsets (doesn't turn them into nulls)
+# --- args:
+# r3 = address of offset value to relocate (to base)
+# r4 = base address tp relocate to, if target is not a branch instruction
+# - r4 is ignored if branches are found, using r3 instead
+
+# --- returns:
+# r3 = rPoint
+# r4 = rBase
+# r5 = rDest
+# r6 = rOld
+# cr bit 6 = bAlreadyRelocated # cr1.eq
+3CE00000
+b <reloc.__flag_null>
+
+
+
+<point.zero> ALL
+# A variation of <point> that allows for 0-index offsets (doesn't turn them into nulls)
+# --- args:
+# r3 = address of offset value to relocate (to base)
+# r4 = base address tp relocate to, if target is not a branch instruction
+# - r4 is ignored if branches are found, using r3 instead
+
+# --- returns:
+# r3 = rPoint
+# r4 = rBase
+# r5 = rDest
+# r6 = rVal - value that would have been relocated if this were <reloc>
+# cr bit 6 = bAlreadyRelocated # cr1.eq
+38E00000
+b <point.__flag_null>
+
+
+
+<point.rel> ALL
+# A variation of <point> that just makes 'rBase' relative to 'rPoint'
+# --- args:
+# r3 = address of offset value to relocate (relative to self)
+
+# --- returns:
+# r3 = rPoint
+# r4 = rBase
+# r5 = rDest
+# r6 = rVal - value that would have been relocated if this were <reloc>
+# --- Pointers with an offset of 0 will be treated as nulls
+# cr bit 4 = bNull # cr1.lt  -- only true if a null was detected
+# cr bit 6 = bAlreadyRelocated # cr1.eq
+3880FFFF
+b <point>
+
+
+
+<reloc.array> ALL
+# Relocates pointers within an array of contiguous structs of the same size
+# - size of struct is used as a stride offset to iterate through the struct array
+# --- args:
+# r3 = first pointer to relocate
+# r4 = base to relocate from (-1 for relative offsets)
+# - r4 is ignored if branches are found, automatically setting this to -1
+# r5 = stride size (number of bytes skip over to find next reloc pointer)
+# r6 = count (-1 for null-terminated list)
+
+# --- iter callback args:
+# r3 = rPoint
+# r4 = rBase
+# r5 = rDest
+# r6 = rVal - value that would have been relocated if this were <reloc>
+# r7 = (given callback argument)
+# cr bit 6 = bAlreadyRelocated # cr1.eq
+
+# --- returns:
+# r3 = start of list
+7CC93378 38C0FFFF 38E00000
+b <reloc.list_cb>
+
+
+
+<reloc.list> ALL
+# Relocates a pointer within a list of linked structs
+# --- args:
+# r3 = first element in linked list
+# r4 = base to relocate from (-1 for relative offsets)
+# - r4 is ignored if branches are found, automatically setting this to -1
+# r5 = offset of pointer to relocate (from struct element;  target for relocation)
+# r6 = offset of link pointer (from struct element;  to next element)
+# r7 = count (-1 for null-terminated list)
+7CE93B78 38E00000
+b <reloc.list_cb>
+
+
+
+<reloc.array_cb> ALL
+# Relocates pointers within an array of contiguous structs of the same size untill a null is found
+# - size of struct is used as a stride offset to iterate through the struct array
+# - each pointer triggers a callback routine given in r6, and passes an argument given in r7
+# --- args:
+# r3 = first pointer to relocate
+# r4 = base to relocate from (-1 for relative offsets)
+# - r4 is ignored if branches are found, automatically setting this to -1
+# r5 = stride size (number of bytes skip over to find next reloc pointer)
+# - first null offset/pointer found terminates the parse
+# r6 = iter callback (0 for no callback)
+# r7 = iter callback arg (passed to callbacks)
+# r8 = count (-1 for null-terminated list)
+
+
+# --- iter callback args:
+# r3 = rPoint
+# r4 = rBase
+# r5 = rDest
+# r6 = rVal - value that would have been relocated if this were <reloc>
+# r7 = (given callback argument)
+# cr bit 6 = bAlreadyRelocated # cr1.eq
+
+# --- returns:
+# r3 = start of list
+7D094378 7CE83B78 7CC73378 38C0FFFF 38E00000
+b <reloc.list_cb>
+
+
+
+<reloc.list_cb> ALL
+# Relocates a pointer within a linked list of elements until a null link is found
+# - each pointer triggers a callback routine given in r7, and passes an argument given in r8
+# --- args:
+# r3 = start of list
+# r4 = base to relocate from (-1 for relative offsets)
+# r5 = offset of reloc pointer (this is an offset from r3)
+# r6 = offset of link pointer (-1 for contiguous arrays)
+# r7 = iter callback (0 for no callback)
+# r8 = iter callback arg (passed to callbacks)
+# r9 = count (-1 for null-terminated list)
+
+# --- iter callback args:
+# r3 = rPoint
+# r4 = rBase
+# r5 = rDest
+# r6 = rVal - value that would have been relocated if this were <reloc>
+# r7 = (given callback argument)
+# cr bit 6 = bAlreadyRelocated # cr1.eq
+
+# --- returns:
+# r3 = start of list
+7C0802A6 9421FF00 90010104 BF210010 2C090000 3B010080 7C7805AA 41820094 BB380000 2C1CFFFF 916100A0 918100A4 40820014 2C1B0000 40A20008 3B600004 7F3BC850 7C79DA14 7F44D378
+bl <reloc>
+2C1CFFFF 41820034 2C1D0000 7FA803A6 7FC7F378 4D800021 7C79E214 7F44D378
+bl <reloc>
+2C1F0000 4C402202 41820034 83230000 48000024 2C1F0000 4C402202 41820020 2C1D0000 7FA803A6 7FC7F378 4D800021 7F39DA14 37FFFFFF 4082FF98 7C7804AA 816100A0 818100A4 BB210010 80010104 38210100 7C0803A6 4E800020
+
+
+
+# --- (hidden layer)
+
+<reloc.__flag_null> ALL
+# Hidden wrapper for point.__flag_null handler
+7C0802A6 9421FFE0 90010024
+bl <point.__flag_null>
+90A30000 80010024 38210020 7C0803A6 4E800020
+
+
+
+<point.__flag_null> ALL
+# Hidden handler for all point functions
+80C30000 54C0463A 2C800080 4DA60020 2C000048 40A20010 3880FFFF 54C63032 7CC63670 2C04FFFF 40A20008 7C641B78 7CA43214 54A0463A 2C000080 7C852000 7C000026 7C003B78 7C040120 4C862202 4CC41342 4CA60020 38A00000 4E800020

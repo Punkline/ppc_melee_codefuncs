@@ -1,0 +1,160 @@
+-==-
+
+Dolphin Logger Functions
+[Punkline]
+# --- generic tools:
+
+<log.printf> NTSC 1.02
+# This logs a formatted print message in the Dolphin logger
+# - log messages will flood EXI buffer with ascii, obfuscating some error outputs in the game
+
+# --- args:
+# r3 = address of format string
+# - string MUST begin with a space
+# - string may include escapes for inserting formatted arguments:
+#   - GPR escapes:  %s = str,  %x = hex,  %d, %i = signed decimal,  %u = unsigned decimal
+# r4...r10 = GPR arguments
+# - these will be fed into the escapes found in the format string, as needed
+4CC63102
+b 0x80323eb4
+
+
+
+<log.printff> NTSC 1.02
+# This logs a formatted print message in the Dolphin logger, and can use floating point args
+# - log messages will flood EXI buffer with ascii, obfuscating some error outputs in the game
+
+# --- args:
+# r3 = address of format string
+# - string MUST begin with a space, and may include escapes for inserting formatted arguments
+#   - GPR escapes:  %s = str,  %x = hex,  %d, %i = signed decimal,  %u = unsigned decimal
+#   - FPR escapes:  %f = float,  %e = exponent
+# r4...r10 = GPR arguments
+# f1...f8  = FPR arguments
+# - these will be fed into the escapes found in the format string, as needed
+4CC63342
+b 0x80323eb4
+
+
+
+<log.printf_nl>
+# Prints a null message to give the appearence of a newline without emitting one
+7C0802A6 9421FFE0 90010024 38000000 90010010 38610010
+bl <log.printf>
+80010024 38210020 7C0803A6 4E800020
+
+
+
+<log.printf_HSD_region_summary> NTSC 1.02
+# Logs the current state of the HSD Memory Regions, with an argument title
+
+# --- args:
+# r3 = region mask, and format options:
+#    + 001 = HSD[0]    --  RAM -- Minor -- Object Heap
+#    + 002 = HSD[1]    -- ARAM -- Minor -- Auxiliary Heap
+#    + 004 = HSD[2]    --  RAM -- Persist -- Priority Archive Arena
+#    + 008 = HSD[3]    --  RAM -- Persist -- Main Major Archive Arena
+#    + 010 = HSD[4]    --  RAM -- Major -- Minor Preload Archive Arena
+#    + 020 = HSD[5]    -- ARAM -- Major -- Auxiliary Preload Archive Arena
+#    + 040 = OSArenaLo --  RAM -- Persist
+#    + 080 = OSArenaHi --  RAM -- Persist
+#    + 100 = Skip Header
+#    + 200 = Skip Group padding (before/after lines)
+#    + 400 = Skip Header padding
+#    + 800 = Skip Line padding
+# r4 = Header title, or null for default 'Memory' title
+#    - can be skipped if the 'Skip Header' flag is true
+7C0802A6 9421FF00 90010104 BE810010 7C7B1B78 7F400026 7C9C2378
+bl <point.inline>
+48000144 20485344 5B25645D 203A2020 25387820 66726565 20203A20 20253878 20616C6C 6F632020 3A202025 38782074 6F74616C 20203A20 20253878 20626967 67657374 20667265 6520203A 20202538 78207374 61727400 20282573 52414D29 203A2020 25387820 66726167 73203A20 20253878 20667261 67732020 3A202025 38782066 72616773 20203A20 20253878 20626967 67657374 20616C6C 6F63203A 20202538 7820656E 64002048 53445B25 645D202D 2D202573 00204F53 4172656E 61257320 25387820 66726565 20203A20 20253878 20616C6C 6F632020 3A202538 7820706F 696E7420 202D2D20 20257300 20004100 4C6F0048 69004F70 656E0043 6C6F7365 64002025 7320202D 2D202053 63656E65 3A202534 782C2025 30347820 202D2D20 20467261 6D653A20 25387820 2B202533 782E2530 3578004D 656D6F72 79000000 7C7F1B78 7F606120 41970040 41960008
+bl <log.printf_nl>
+bl <log.timestamp>
+7CE53B78 54C6043E 7C671B78 5488653E 5489033E 7F84E379 387F0102 41A00008 389F0137
+bl <log.printf>
+41950008
+bl <log.printf_nl>
+3BC00000 3B810080 73600001 41A2008C 7FC3F378 3880FFFF
+bl <HSD.region_bytes>
+7C0C4A15 41820060 7FA00026 7CBC05AA 7FE3FB78 7CA02B78 7D254B78 7C090378 7FC4F378 7D866378 7CE53214
+bl <log.printf>
+7CBC04AA 7FAFF120 387F0054 389F00EC 41A50008 389F00EE 7D253214 7CE53B78 7D465378 7CE53214 7D685B78
+bl <log.printf>
+48000014 387F00A6 7FC4F378 38BF00FB
+bl <log.printf>
+41940008
+bl <log.printf_nl>
+3BDE0001 2C1E0005 577BF87E 4081FF64 4C18CB82 40A000A8 832DBCD0 830DA570 7EB8C851 3AFF00FB 41A20008 3AFF00F6 40B9005C 387F00B5 3CE08043 389F00F0 80E71FA0 7EA5AB78 2C070000 3C008180 7EE8BB78 7C2A0B78 812A0000 40A20008 7F07C378 7C090000 40800010 7D2A4B78 81290000 4BFFFFF0 392A0008 7CC93850
+bl <log.printf>
+41940008
+bl <log.printf_nl>
+40980030 387F00B5 389F00F3 7EA5AB78 3CC08000 7EE8BB78 80C60034 7F27CB78 7CD93050
+bl <log.printf>
+41940008
+bl <log.printf_nl>
+41960008
+bl <log.printf_nl>
+7F4FF120 BA810010 80010104 38210100 7C0803A6 4E800020
+
+
+
+<log.timestamp> NTSC 1.02
+# takes no args, and returns the following identifying timestamp data:
+# --- Retrns:
+# f1 = Scene frame
+#    - integer index counter -- not a real timer
+#      - index counts up once before the GProc, GXDraw steps in a scene frame execute
+#      - updated as part of the HSD Performance stat routine implemented in the scene loop
+# f2 = Relative frame
+#    - using HSD Performance stat timestamps
+#      - f2 is the real time relative to the start of the counted frame in f1
+#      - very accurate -- should maintain precision of 20-nanosecond increments
+# f3 = Boot frame
+#    - using OS boot timestamp to create a sample runtime frame timestamp
+
+# r3 = Scene frame
+# r4 = Relative frame (in microframes)
+#    + FFF00000 = full frames
+#    + 000FFFFF = microframes
+#    - microframes count in-between frames, relative to the performance monitor timestamps
+#    - full frames will be <1 unless something is causing the scene frame ticks to stall:
+#      - >1 when the GProc or GXDraw step of a scene takes too long
+#      - >1 when the CPU is stalling while waiting for hardware to sync
+# r5 = Boot frame
+
+# r6 = compressed ID: [r7, r8, r9]
+#    - r6 is convenient for implementing into timestamp messages if individual IDs are not needed
+# r7 = Scene Transition Count
+# r8 = Major Scene ID
+# r9 = Minor Scene ID
+# r10, r11 = raw TBU, TBL
+#          - r10, r11 make a timestamp counting from epoch in jan 2000 -- unnormalized
+7D4D42E6 7D6C42E6 7C0D42E6 7C005000 40A2FFF0 7C0802A6 9421FFE0 90010024 3CE08000 80C700F8 3C008888 54C6F0BE 60008889 7C603016 38800005
+bl <float.u32_>
+FC600890 EC431828 806730D8 808730DC 7C845810 7C635110
+bl <float.s64>
+bl <norm>
+D021000C
+bl <u32.float>
+7C651B78 806DC058 2C030000 808DC05C 41820014 7C845810 7C635110
+bl <float.s64>
+bl <norm>
+D0210010 38600014
+bl <u32_.float>
+90610014 3D008048 80689D5C
+bl <float.u32>
+80810014 C0410010 C061000C 3CE08043 89289D33 80E720CC 89089D30 54E6801E 5106442E 5126063E 80010024 38210020 7C0803A6 4E800020
+
+
+
+
+<log.call_filter> NTSC 1.02
+# Fetches caller address (using stack frame)
+# - optionally filter out known caller locations by giving an input list of addresses
+
+# --- args:
+# r3 = filter list  -  null terminated list of exceptions to skip
+# - each exception must be the address of the CALLER, not the return address or the function start
+
+# --- Returns:
+# r3 = caller
+2C830000 3083FFFC 80A10000 7C862378 4800001C 84040004 2C000000 4C800020 7C001800 4082FFF0 80A50000 80650004 3863FFFC 7CC43378 4184FFDC 4E800020

@@ -1,0 +1,446 @@
+-==-
+
+Dolphin Logger Functions
+[Punkline]
+# --- generic tools:
+
+<log.printf> NTSC 1.02
+# This logs a formatted print message in the Dolphin logger
+# - log messages will flood EXI buffer with ascii, obfuscating some error outputs in the game
+
+# --- args:
+# r3 = address of format string
+# - string MUST begin with a space
+# - string may include escapes for inserting formatted arguments:
+#   - GPR escapes:  %s = str,  %x = hex,  %d, %i = signed decimal,  %u = unsigned decimal
+# r4...r10 = GPR arguments
+# - these will be fed into the escapes found in the format string, as needed
+
+crandc 6, 6, 6  # disables FPR args
+b 0x80323eb4   # printf
+
+<log.printff> NTSC 1.02
+# This logs a formatted print message in the Dolphin logger, and can use floating point args
+# - log messages will flood EXI buffer with ascii, obfuscating some error outputs in the game
+
+# --- args:
+# r3 = address of format string
+# - string MUST begin with a space, and may include escapes for inserting formatted arguments
+#   - GPR escapes:  %s = str,  %x = hex,  %d, %i = signed decimal,  %u = unsigned decimal
+#   - FPR escapes:  %f = float,  %e = exponent
+# r4...r10 = GPR arguments
+# f1...f8  = FPR arguments
+# - these will be fed into the escapes found in the format string, as needed
+
+crorc 6, 6, 6  # enables FPR args
+b 0x80323eb4   # printf
+
+
+<log.printf_nl>
+# Prints a null message to give the appearence of a newline without emitting one
+mflr r0
+stwu sp, -0x20(sp)
+stw  r0,  0x20+4(sp)
+li r0, 0
+stw r0, 0x10(sp)
+addi r3, sp, 0x10
+bl <log.printf>
+lwz  r0,  0x20+4(sp)
+addi sp, sp, 0x20
+mtlr r0
+blr
+
+
+
+<log.printf_HSD_region_summary> NTSC 1.02
+# Logs the current state of the HSD Memory Regions, with an argument title
+
+# --- args:
+# r3 = region mask, and format options:
+#    + 001 = HSD[0]    --  RAM -- Minor -- Object Heap
+#    + 002 = HSD[1]    -- ARAM -- Minor -- Auxiliary Heap
+#    + 004 = HSD[2]    --  RAM -- Persist -- Priority Archive Arena
+#    + 008 = HSD[3]    --  RAM -- Persist -- Main Major Archive Arena
+#    + 010 = HSD[4]    --  RAM -- Major -- Minor Preload Archive Arena
+#    + 020 = HSD[5]    -- ARAM -- Major -- Auxiliary Preload Archive Arena
+#    + 040 = OSArenaLo --  RAM -- Persist
+#    + 080 = OSArenaHi --  RAM -- Persist
+#    + 100 = Skip Header
+#    + 200 = Skip Group padding (before/after lines)
+#    + 400 = Skip Header padding
+#    + 800 = Skip Line padding
+# r4 = Header title, or null for default 'Memory' title
+#    - can be skipped if the 'Skip Header' flag is true
+
+mflr r0
+stwu sp, -0x100(sp)
+stw  r0,  0x100+4(sp)
+stmw r20, 0x10(sp)
+mr r27, r3
+mfcr r26
+mr r28, r4
+bSkipLinePad=20; bSkipHeadPad=21; bSkipGroupPad=22
+bSkipHead=23;    bOSArenaHi=24;   bOSArenaLo=25
+
+bl <point.inline>
+b 100f
+  0:  .asciz " HSD[%d] :  %8x free  :  %8x alloc  :  %8x total  :  %8x biggest free  :  %8x start"
+  1:  .asciz " (%sRAM) :  %8x frags :  %8x frags  :  %8x frags  :  %8x biggest alloc :  %8x end"
+  2:  .asciz " HSD[%d] -- %s"
+  5:  .asciz " OSArena%s %8x free  :  %8x alloc  : %8x point  --  %s"
+  3:  .asciz " "
+  4:  .asciz "A"
+  6:  .asciz "Lo"
+  7:  .asciz "Hi"
+  8:  .asciz "Open"
+  9:  .asciz "Closed"
+  10: .asciz " %s  --  Scene: %4x, %04x  --  Frame: %8x + %3x.%05x"
+  11: .asciz "Memory"
+  .align 2
+
+100:
+mr r31, r3  # r31 points to base of inline data
+mtcrf 0x06, r27
+bt- bSkipHead, _end_of_head
+  bt- bSkipGroupPad, 100f  # skip header and/or header padding according to flags
+    bl <log.printf_nl>
+
+  100:
+  bl <log.timestamp>
+  mr r5, r7
+  rlwinm r6, r6, 0, 0xFFFF
+  mr r7, r3
+  rlwinm r8, r4, 12, 0xFFF
+  rlwinm r9, r4, 0, 0xFFFFF
+  mr. r4, r28
+  addi r3, r31, 10b-0b
+  blt+ 100f
+    addi r4, r31, 11b-0b
+
+  100:
+  bl <log.printf>  # print header, with optional custom title
+  bt- bSkipHeadPad, _end_of_head
+    bl <log.printf_nl>
+
+_end_of_head:
+li r30, 0
+addi r28, sp, 0x80  # set up loop for 6 HSD regions
+
+_for_each_region:
+  andi. r0, r27, 1
+  beq+ _next_region  # only print off flagged regions, skipping unflagged ones
+
+    mr r3, r30
+    li r4, -1
+    bl <HSD.region_bytes>  # use the returned information to format print message:
+  # cr1.lt = bIsAvailable   -- this is true if a free fragment is available
+  # cr1.gt = bIs RAM        -- as opposed to ARAM, which can't be navigated directly by the CPU
+  # cr1.eq = bIsArena       -- uses an Arena metadata structure instead of a Heap metadata structure
+
+  # r3 = first found free fragment (of sufficient size)
+  # r4 = size of first found free fragment
+  #    - these will be blank if bIsAvailable == False
+
+  # r5 = region start
+  # r6 = region size
+  #    - these are almost always returned if the ID was correct
+
+  # r7 = Free fragments counted in this region
+  # r8 = Biggest free fragment counted in this region
+  # r9 = Total free bytes counted in this region
+  # r10 = Allocated fragments counted in this region
+  # r11 = Biggest allocated fragment counted in this region
+  # r12 = Total allocated bytes counted in this region
+  #    - these will only count all of the region if the size you give it is not found
+  #      - you can ensure this by using -1 as an input, which is checked with an unsigned comparison
+
+    add. r0, r12, r9
+    beq- _not_available
+
+      _available:
+      mfcr r29
+      stswi r5, r28, 0x20
+      mr r3, r31
+      mr r0, r5
+      mr r5, r9
+      mr r9, r0
+      mr r4, r30
+      mr r6, r12
+      add r7, r5, r6
+      # r8 is in place
+      bl <log.printf>  # print first line
+      lswi r5, r28, 0x20
+      mtcr r29
+      addi r3, r31, 1b-0b
+      addi r4, r31, 3b-0b
+      bgt+ cr1, 100f
+        addi r4, r31, 4b-0b
+
+      100:
+      add r9, r5, r6
+      mr r5, r7
+      mr r6, r10
+      add r7, r5, r6
+      mr r8, r11
+      bl <log.printf>  # print second line
+      b _check_line_padding
+
+    _not_available:
+    addi r3, r31, 2b-0b
+    mr r4, r30
+    addi r5, r31, 9b-0b
+    bl <log.printf>  # else announce unavailable line
+
+  _check_line_padding:
+  bt- bSkipLinePad, _next_region
+    bl <log.printf_nl>
+
+  _next_region:
+  addi r30, r30, 1
+  cmpwi r30, 5
+  srwi r27, r27, 1
+  ble+ _for_each_region # continue for 6 regions
+
+cror 0, bOSArenaHi, bOSArenaLo
+bf+ 0, _check_group_nl  # at end, if neither OSArena region is flagged, check for end padding
+
+  lwz r25, -0x4330(r13) # else, check to see if OSArena is still open
+  lwz r24, -0x5a90(r13)
+  sub. r21, r25, r24
+  addi r23, r31, 9b-0b  # closed
+  beq+ 100f
+    addi r23, r31, 8b-0b # open
+
+  100:
+  bf+ bOSArenaLo, _check_high
+    addi r3, r31, 5b-0b
+    lis r7, 0x80431fa0@h  # this points to where the HSD region memory boundary starts
+    addi r4, r31, 6b-0b
+    lwz r7, 0x1fa0(r7)
+    mr r5, r21
+    cmpwi r7, 0
+    lis r0, 0x8180
+    mr r8, r23
+    mr r10, sp
+    lwz r9, 0(r10)
+    bne+ 100f
+      mr r7, r24  # if closed, the HSD memory region will have recorded closing point
+
+    100:
+    cmpw r9, r0
+    bge- 100f
+      mr r10, r9
+      lwz r9, 0(r9) # get first stack frame, from r1 (sp)
+      b 100b
+
+    100:
+    addi r9, r10, 0x8 # r9 = ceiling of static memory, floor of OSArenaLo
+    sub r6, r7, r9   # r6 = bytes between floor and ceiling (allocated)
+    bl <log.printf>
+    bt- bSkipLinePad, _check_high
+      bl <log.printf_nl>
+
+  _check_high:
+  bf- bOSArenaHi, _check_group_nl
+    addi r3, r31, 5b-0b
+    addi r4, r31, 7b-0b
+    mr r5, r21
+    lis r6, 0x8000
+    mr r8, r23
+    lwz r6, 0x34(r6) # get OS ArenaHi definition for ceiling
+    mr r7, r25
+    sub r6, r6, r25  # and pointer for floor
+    bl <log.printf>
+    bt- bSkipLinePad, _check_group_nl
+      bl <log.printf_nl>
+
+_check_group_nl:
+bt- bSkipGroupPad, 100f
+  bl <log.printf_nl>  # extra newline helps visually separate multiple outputs in a sequence
+100:
+
+_return:
+mtcr r26
+lmw r20, 0x10(sp)
+lwz  r0,  0x100+4(sp)
+addi sp, sp, 0x100
+mtlr r0
+blr
+
+
+
+<log.timestamp> NTSC 1.02
+# takes no args, and returns the following identifying timestamp data:
+# --- Retrns:
+# f1 = Scene frame
+#    - integer index counter -- not a real timer
+#      - index counts up once before the GProc, GXDraw steps in a scene frame execute
+#      - updated as part of the HSD Performance stat routine implemented in the scene loop
+# f2 = Relative frame
+#    - using HSD Performance stat timestamps
+#      - f2 is the real time relative to the start of the counted frame in f1
+#      - very accurate -- should maintain precision of 20-nanosecond increments
+# f3 = Boot frame
+#    - using OS boot timestamp to create a sample runtime frame timestamp
+
+# r3 = Scene frame
+# r4 = Relative frame (in microframes)
+#    + FFF00000 = full frames
+#    + 000FFFFF = microframes
+#    - microframes count in-between frames, relative to the performance monitor timestamps
+#    - full frames will be <1 unless something is causing the scene frame ticks to stall:
+#      - >1 when the GProc or GXDraw step of a scene takes too long
+#      - >1 when the CPU is stalling while waiting for hardware to sync
+# r5 = Boot frame
+
+# r6 = compressed ID: [r7, r8, r9]
+#    - r6 is convenient for implementing into timestamp messages if individual IDs are not needed
+# r7 = Scene Transition Count
+# r8 = Major Scene ID
+# r9 = Minor Scene ID
+# r10, r11 = raw TBU, TBL
+#          - r10, r11 make a timestamp counting from epoch in jan 2000 -- unnormalized
+
+OSGlobals  = 0x80000000
+Frac = 0x88888889
+xBUS_MHz   = 0xF8
+xBoot_time = 0x30D8
+# clock speed and boot time references
+
+Scene_Controller = 0x80479D30 + 0x10000
+xMajor = 0    + (Scene_Controller & 0xFFFF) - 0x10000
+xMinor = 3    + (Scene_Controller & 0xFFFF) - 0x10000
+xFrame = 0x2C + (Scene_Controller & 0xFFFF) - 0x10000
+# performance stat frame counter and scene controller IDs
+
+Scene_transitions = 0x804320CC
+# part of archive globals, apparently
+
+xHSD_PerfStat = -0x3FA8
+# r13 performance stat time base sample
+
+fScene=1; fRel=2; fBoot=3
+rScene=3; rRel=4; rBoot=5; rID=6; rTrans=7; rMajor=8; rMinor=9; rTBU=10; rTBL=11
+fTicks=1; fFloor=2; fCeil=3; rCeil=6; rOS=7; rGlobals=8
+xBoot=0xC; xRel=0x10
+
+0: mftbu rTBU
+mftbl rTBL
+mftbu r0
+cmpw r0, rTBU
+bne- 0b
+# get timestamp, correcting for unlikely (but possible) 85-second mark error
+
+mflr r0
+stwu sp, -0x20(sp)
+stw  r0,  0x20+4(sp)
+# callsafe prolog
+
+lis  rOS, OSGlobals@h
+lwz  rCeil, xBUS_MHz(rOS)
+lis r0, Frac@h
+srwi rCeil, rCeil, 2
+ori r0, r0, Frac@l # fixed point fraction
+mulhwu r3, r0, rCeil # high multiply, to apply fixed point fraction
+li r4, 5
+bl <float.u32_>
+# all casting functions called here have a minimal impact on volatile registers
+# - only r0, r3, r4, f0, f1 are affected
+
+fmr fCeil, fTicks
+fsubs fFloor, fCeil, fCeil
+# fCeil represents a total number of ticks per 'frame', according to BUS speed
+# fFloor = 0.0
+# - this formats a call/return register pipeline for the <norm> instruction that we can re-use
+
+# <norm> is like a safe division operation that provides a reciprocal and optional floor
+#   - f1 = in/out;  f2 and f3 stay the same as a ceiling/floor for sequential division ops
+
+lwz  r3, xBoot_time+0(rOS)
+lwz  r4, xBoot_time+4(rOS)
+subfc r4, r4, rTBL
+subfe r3, r3, rTBU
+bl <float.s64>
+bl <norm>
+# boot ticks have been sampled, casted, and normalized into a percentage in f1
+
+stfs f1, xBoot(sp)
+bl <u32.float>
+mr rBoot, r3
+# rBoot is now ready for return, and fBoot is stored in stack frame
+
+lwz r3, xHSD_PerfStat+0(r13)
+cmpwi r3, 0
+lwz r4, xHSD_PerfStat+4(r13)
+beq- 0f
+  subfc r4, r4, rTBL
+  subfe r3, r3, rTBU
+  bl <float.s64>
+  bl <norm>
+  # Performance stat sample is used to create relative timestamp base
+  # - if not available (before first frame of the first scene), then use boot time instead
+
+0:
+stfs f1, xRel(sp)
+li r3, 20
+bl <u32_.float>
+#  20-bit fractional component == micro-frame units
+
+stw r3, xRel+4(sp)
+lis rGlobals, Scene_Controller@h
+lwz r3, xFrame(rGlobals)
+bl <float.u32>
+lwz rRel, xRel+4(sp)
+lfs fRel, xRel(sp)
+lfs fBoot, xBoot(sp)
+# all timestamps are ready for return:
+#   rScene, fScene
+#   rRel,   fRel
+#   rBoot,  fBoot
+
+lis rTrans, Scene_transitions@h
+lbz rMinor, xMinor(rGlobals)
+lwz rTrans, (Scene_transitions & 0xFFFF) (rTrans)
+lbz rMajor, xMajor(rGlobals)
+rlwinm rID, rTrans, 16, 0xFFFF0000
+rlwimi rID, rMajor, 8, 0xFF00
+rlwimi rID, rMinor, 0, 0xFF
+# Scene transition ID has been compiled
+
+_return:
+lwz  r0,  0x20+4(sp)
+addi sp, sp, 0x20
+mtlr r0
+blr
+
+
+
+
+<log.call_filter> NTSC 1.02
+# Fetches caller address (using stack frame)
+# - optionally filter out known caller locations by giving an input list of addresses
+
+# --- args:
+# r3 = filter list  -  null terminated list of exceptions to skip
+# - each exception must be the address of the CALLER, not the return address or the function start
+
+# --- Returns:
+# r3 = caller
+
+cmpwi cr1, r3, 0
+subic r4, r3, 4
+lwz r5, 0(sp)
+mr r6, r4
+b 1f
+_for_each_caller_filter:
+  lwzu r0, 0x4(r4)
+  cmpwi r0, 0
+  bgelr-
+  cmpw r0, r3
+  bne+ _for_each_caller_filter
+    lwz r5, 0(r5)
+    1: lwz r3, 0x4(r5)
+    subi r3, r3, 4
+    mr r4, r6 # try again with deeper frame if a match was found
+    blt+ cr1, _for_each_caller_filter
+      blr # return immediately if no filter was given

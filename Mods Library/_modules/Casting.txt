@@ -1,0 +1,593 @@
+
+-==-
+
+Scaled Casting Functions
+[Punkline]
+# --- SCALED INT <> FLOAT CASTING
+
+# --- FLOATS - these are single-precision floating points, and can be casted 1 or 2 at a time:
+#  float - 32-bit floating point (pair)
+#        - 9999.9999,  9999.9999
+# - all floating point registers are actually pair tuples, holding 2 32-bit values
+# - if only 1 float is being handled, the pair will be duplicates of the same number
+
+# --- FULL INTS - these can only be casted 1 at a time:
+#  u32 - unsigned 32-bit int
+#      -  0xFFFFFFFF
+
+#  s32 -   signed 32-bit int
+#      - -0x7FFFFFFF
+
+# --- SMALL INTS - these can be casted 1 or 2 at a time:
+#  u16 - unsigned 16-bit int
+#      -  0xFFFF,  0xFFFF
+
+#  s16 -   signed 16-bit int
+#      - -0x7FFF, -0x7FFF
+
+#  u8  - unsigned  8-bit int
+#      -    0xFF,    0xFF
+
+#  s8  -   signed  8-bit int
+#      -   -0x7F,   -0x7F
+
+
+# --- SCALE
+# Integers are 'fixed points' with a scale of 0
+#  'scale' refers to the implied 'exponent', which can be thought of as a number of 'fraction' bits
+#  - the exponent is a power of 2, so you may think of changes in the exponent as bitwise 'shifts'
+
+# A positive scale determines the number of bits in the integer are a fractional component
+#  u16_8  - 16-bit int has 8 bits dedicated to a fraction
+#         - 0xFF.FF,  0xFF.FF
+
+# A positive scale >= the number of bits in the integer will be entirely fractional
+#  u16_20 - 16-bit int has 20 bits (4 of them abstract) dedicated to a fraction
+#         - 0x00000.0FFFF,  0x00000.0FFFF
+
+# A negative scale will create an abstractly large integer number
+#  u16_-4 - 16-bit int has -4 bits dedicated to a fraction (creating an abstract 'shift')
+#         - 0xFFFF0.00000,  0xFFFF0.00000
+
+# In each of these cases, the represented data is a normal 16-bit int.
+# The scales are applied as these ints get loaded/stored in a special quantized casting routine
+
+
+
+# --- FUNCTIONS NAMES
+# float.*   - r3 = int to cast into a float
+# - these functions create floating points from an integer of a type described by *
+
+# *.float   - f1 = float to cast into an int
+# - these function create integers of a type described by *, from floats
+
+# qr7.*     - r3 = scale to apply to GQR7
+# - these functions can generate a casting scale for manual casting between ints<>floats using GQR7
+
+# * represents an integer type_scale keyword:
+
+
+# --- FUNCTION NAME KEYWORDS - for *
+# The following premade scale types are available (for filling in *):
+#   *             .        QR used/returned
+# - u8          FF.      # QR2 - dedicated casting scales
+# - u16       FFFF.      # QR3
+# - s8         -7F.      # QR4
+# - s16      -7FFF.      # QR5
+# - s32  -7FFFFFFF.      # no QR - these are not destructive to QR contents
+
+# An underscore '_' suffix denotes a non-0 fractional component that scales the integer:
+#   *             .
+# - s32_16   -7FFF.FFFF  # no QR
+# - s16_4     -7FF.F     # QR7 - premade hword scales
+# - s16_8      -7F.FF    # QR7
+# - s16_12      -7.FFF   # QR7
+# - u16_16        .FFFF  # QR7
+# - u8_8          .FF    # QR7 - premade byte scales
+# - u8_4         F.F     # QR7
+# - s8_4        -7.F     # QR7 - all of these (besides s32_16) return the generated scale in QR7
+
+# Additionally, these types may be used to specify or reuse a more specific scale:
+#   *
+# - u8_       # QR7 - custom scale passed in r3 or r4, and returned in qr7
+# - u16_      # QR7
+# - s8_       # QR7
+# - s16_      # QR7
+# - u8_qr7    # QR7 - custom scale/type in qr7 is reused
+# - u16_qr7   # QR7
+# - s8_qr7    # QR7
+# - s16_qr7   # QR7
+
+
+# --- QR7 - for saving and reusing scales
+# QR7 is a volatile quantization register that's used to define the scales used in these casts
+# - when using a custom scale, it will be returned in QR7, and may be reused
+#   - functions types that end with _qr7 will utilize the current scale
+#   - paired singles instructions can load/store using qr7, directly
+
+
+
+# Example calls:
+
+# These cast Floats into Ints:
+# --- bl <s16.float>     - f1  = float or [pair] to cast to r3 or [r3, r0]
+# --- bl <s16_8.float>
+# --- bl <s16_.float>    - r3  = explicit scale argument
+# --- bl <s16_qr7.float> - qr7 = explicit scale argument
+# Pairs are split into r3 and r0 after casting, to distinguish them
+#   f1 = [First, Second] - input
+#   r0 = Second          - extra output (can be discarded if not using)
+#   r3 = First           - output
+# - if f1 is a pair of distinct floats, each will be casted -- with the second returned in r0
+
+
+# These cast Ints into Floats:
+# --- bl <float.s16>     - r3  = int or [pair] to cast to f1  or [f1, f0]
+# --- bl <float.s16_8>
+# --- bl <float.s16_>    - r4  = explicit scale argument
+# --- bl <float.s16_qr7> - qr7 = explicit scale argument
+# - pairs create a 2x2 complementary matrix that can be accessed as both pairs and/or singles:
+#   r3 = [High, Low]  - input
+#   f0 = [High, Low]  - extra output (can be discarded if not using)
+#   f1 = [Low, High]  - transposed output
+# - operating on single floats from f0 and f1 will use only the first float in the tuple pair
+# - f1 output is transposed to allow only Low of r3 to be invoked as first float in the tuple pair
+#   - in cases where only 1 float is being casted, this makes Low available without ps_ instructions
+
+
+# These prepare QR7 for manual casting, or with custom scales:
+# --- bl <qr7.s16_8>     - set QR7 without casting anything
+# --- bl <qr7.s16_>      - r3 = explicit scale argument
+# --- bl <qr7.backup>    - returns r3 = raw data in QR7 (backup the current scale)
+# --- bl <qr7.restore>   - r3 = raw data to move to QR7 (restore backup)
+# - these can set up QR7 for manual casting, or saving and restoring the state of QR
+# - you do not need to use qr7 if using the above convenience functions
+
+
+
+# --- FULL CASTING - 32-bit -- solo
+# These functions use the double-precision subtraction method of casting
+# - each produces only 1 result, but it may be used as a duplicate pair in ps instructions
+
+# WORDS:   u32*, s32*
+# to float...
+# +   FFFFFFFF : r3 -> f1
+
+# from float...
+# +   FFFFFFFF : r3 <- f1
+
+# float.s64     rInt_high, rInt_low
+# float.s32     rInt
+# float.u32     rInt
+# float.s32_    rInt, rScale
+# float.u32_    rInt, rScale
+# float.s32_16  rInt
+# float.u32_16  rInt
+# u64.double    fDouble
+# s32.float     fFloat
+# u32.float     fFloat
+# s32_.float    fFloat, rScale
+# u32_.float    fFloat, rScale
+# s32_16.float  fFloat
+# u32_16.float  fFloat
+
+# Float <- Int
+<float.s64> NTSC 1.02
+7C0802A6 9421FF00 90010104 9141002C 39410010 7C6AE5AA
+bl 0x80322da0
+39410010 7C6AE4AA 8141002C 80010104 38210100 7C0803A6 4E800020
+
+<float.s32> ALL
+38000000
+b <float.__s32_fullcast>
+
+<float.s32_16> ALL
+38000010
+b <float.__s32_fullcast>
+
+<float.s32_> ALL
+7C802378
+b <float.__s32_fullcast>
+
+<float.u32> ALL
+38000000
+b <float.__u32_fullcast>
+
+<float.u32_16> ALL
+38000010
+b <float.__u32_fullcast>
+
+<float.u32_> ALL
+7C802378
+b <float.__u32_fullcast>
+
+
+# Int <- Float
+<u64.double> NTSC 1.02
+7C0802A6 9421FF00 90010104 9141002C 39410018 7CAAA5AA
+bl 0x80322e54
+39410018 7CAAA4AA 8141002C 80010104 38210100 7C0803A6 4E800020
+
+<s32.float> ALL
+38000000
+b <s32.__fullcast>
+
+<s32_16.float> ALL
+38000010
+b <s32.__fullcast>
+
+<s32_.float> ALL
+7C601B78
+b <s32.__fullcast>
+
+<u32.float> ALL
+38000000
+b <u32.__fullcast>
+
+<u32_16.float> ALL
+38000010
+b <u32.__fullcast>
+
+<u32_.float> ALL
+7C601B78
+b <u32.__fullcast>
+
+
+
+
+
+# --- SMALL CASTING - 16-bit and 8-bit -- paired
+# Uses Graphical Quantization Registers and Paired Singles instructions for fast, efficient casting
+# - only works on integers 16 bits and smaller, but may operate on a pair of values
+
+# BYTES:   u8*, s8*
+# to float...
+# +   000000FF : r3 -> f1[0]   -- also f0[1]
+# +   0000FF00 : r3 -> f1[1]   -- also f0[0]
+
+# from float...
+# +   000000FF : r3 <- f1[0]
+# +   000000FF : r0 <- f1[1]
+
+# float.s8      rInt
+# float.u8      rInt
+# float.s8_     rInt, rScale
+# float.u8_     rInt, rScale
+# float.s8_qr7  rInt
+# float.u8_qr7  rInt
+# float.s8_4    rInt
+# float.u8_4    rInt
+# float.u8_8    rInt
+# s8.float      fFloat
+# u8.float      fFloat
+# s8_.float     fFloat, rScale
+# u8_.float     fFloat, rScale
+# s8_qr7.float  fFloat
+# u8_qr7.float  fFloat
+# s8_4.float    fFloat
+# u8_4.float    fFloat
+# u8_8.float    fFloat
+# qr7.s8_4      --
+# qr7.u8_4      --
+# qr7.u8_8      --
+
+
+# HWORDS:  u16*, s16*
+# to float...
+# +   0000FFFF : r3 -> f1[0]   -- also f0[1]
+# +   FFFF0000 : r3 -> f1[1]   -- also f0[0]
+
+# from float...
+# +   0000FFFF : r3 <- f1[0]
+# +   0000FFFF : r0 <- f1[1]
+
+# Using pairs is optional:
+# - f1[0] and f0[0] can be accessed by normal floating point instructions
+# - f1[1] and f0[1] can be accessed by paired singles instructions
+
+# float.s16      rInt
+# float.u16      rInt
+# float.s16_     rInt, rScale
+# float.u16_     rInt, rScale
+# float.s16_qr7  rInt
+# float.u16_qr7  rInt
+# float.s16_4    rInt
+# float.s16_8    rInt
+# float.s16_12   rInt
+# float.u16_16   rInt
+# s16.float      fFloat
+# u16.float      fFloat
+# s16_.float     fFloat, rScale
+# u16_.float     fFloat, rScale
+# s16_qr7.float  fFloat
+# u16_qr7.float  fFloat
+# s16_4.float    fFloat
+# s16_8.float    fFloat
+# s16_12.float   fFloat
+# u16_16.float   fFloat
+# qr7.s16_4      --
+# qr7.s16_8      --
+# qr7.s16_12     --
+# qr7.u16_16     --
+# qr7.backup     --
+# qr7.restore    rQR
+
+
+# Float <- Int
+
+# fastcast
+<float.s8> ALL
+9421FFE0 B0610008 E0012008
+b <float.__transpose>
+
+<float.s16> ALL
+9421FFE0 90610008 E0013008
+b <float.__transpose>
+
+<float.u8> ALL
+9421FFE0 B0610008 E0014008
+b <float.__transpose>
+
+<float.u16> ALL
+9421FFE0 90610008 E0015008
+b <float.__transpose>
+
+
+# custom scale from r4
+<float.u8_> ALL
+38000004 508044AE 5000801E 7C17E3A6
+b <float.u8_qr7>
+
+<float.u16_> ALL
+38000005 508044AE 5000801E 7C17E3A6
+b <float.u16_qr7>
+
+<float.s8_> ALL
+38000006 508044AE 5000801E 7C17E3A6
+b <float.s8_qr7>
+
+<float.s16_> ALL
+38000007 508044AE 5000801E 7C17E3A6
+b <float.s16_qr7>
+
+
+# custom scales through qr7
+<float.s16_qr7> ALL
+9421FFE0 90610008 E0017008
+b <float.__transpose>
+
+<float.u16_qr7> ALL
+b <float.s16_qr7>
+
+<float.s8_qr7> ALL
+9421FFE0 B0610008 E0017008
+b <float.__transpose>
+
+<float.u8_qr7> ALL
+b <float.s8_qr7>
+
+
+
+# --- Float to Int
+
+# fastcast
+<s8.float> ALL
+9421FFE0 F0212008
+b <s8.__transpose>
+
+<s16.float> ALL
+9421FFE0 F0213008
+b <s16.__transpose>
+
+<u8.float> ALL
+9421FFE0 F0214008
+b <u8.__transpose>
+
+<u16.float> ALL
+9421FFE0 F0215008
+b <u16.__transpose>
+
+
+# custom scale from r3
+<u8_.float> ALL
+38000004 506044AE 5000801E 7C17E3A6
+b <u8_qr7.float>
+
+<u16_.float> ALL
+38000005 506044AE 5000801E 7C17E3A6
+b <u16_qr7.float>
+
+<s8_.float> ALL
+38000006 506044AE 5000801E 7C17E3A6
+b <s8_qr7.float>
+
+<s16_.float> ALL
+38000007 506044AE 5000801E 7C17E3A6
+b <s16_qr7.float>
+
+
+# custom scale/type from qr7
+<s8_qr7.float> ALL
+9421FFE0 F0217008
+b <s8.__transpose>
+
+<s16_qr7.float> ALL
+9421FFE0 F0217008
+b <s16.__transpose>
+
+<u8_qr7.float> ALL
+9421FFE0 F0217008
+b <u8.__transpose>
+
+<u16_qr7.float> ALL
+9421FFE0 F0217008
+b <u16.__transpose>
+
+
+
+# --- qr7 custom scales
+# custom scales from r3
+<qr7.u8_> ALL
+38000004
+b <qr7.__custom_scale>
+
+<qr7.u16_> ALL
+38000005
+b <qr7.__custom_scale>
+
+<qr7.s8_> ALL
+38000006
+b <qr7.__custom_scale>
+
+<qr7.s16_> ALL
+38000007
+b <qr7.__custom_scale>
+
+
+
+
+# --- Premade Scales
+# Use these to cast with as few requirements as possible using in a handful of convenient scales
+
+# float <- int
+<float.s8_4> NTSC 1.02
+38800004
+b <float.s8_>
+
+<float.u8_4> ALL
+38800004
+b <float.u8_>
+
+<float.u8_8> ALL
+38800008
+b <float.u8_>
+
+<float.s16_4> ALL
+38800004
+b <float.s16_>
+
+<float.s16_8> ALL
+38800008
+b <float.s16_>
+
+<float.s16_12> ALL
+3880000C
+b <float.s16_>
+
+<float.u16_16> ALL
+38800010
+b <float.u16_>
+
+
+# int <- float
+<s8_4.float> ALL
+38600004
+b <s8_.float>
+
+<u8_4.float> ALL
+38600004
+b <u8_.float>
+
+<u8_8.float> ALL
+38600008
+b <u8_.float>
+
+<s16_4.float> ALL
+38600004
+b <s16_.float>
+
+<s16_8.float> ALL
+38600008
+b <s16_.float>
+
+<s16_12.float> ALL
+3860000C
+b <s16_.float>
+
+<u16_16.float> ALL
+38600010
+b <u16_.float>
+
+# qr7 <- r3
+<qr7.s8_4> ALL
+38600004
+b <qr7.s8_>
+
+<qr7.u8_4> ALL
+38600004
+b <qr7.u8_>
+
+<qr7.u8_8> ALL
+38600008
+b <qr7.u8_>
+
+<qr7.s16_4> ALL
+38600004
+b <qr7.s16_>
+
+<qr7.s16_8> ALL
+38600008
+b <qr7.s16_>
+
+<qr7.s16_12> ALL
+3860000C
+b <qr7.s16_>
+
+<qr7.u16_16> ALL
+38600010
+b <qr7.u16_>
+
+<qr7.backup> ALL
+7C77E2A6 4E800020
+
+<qr7.restore> ALL
+7C77E3A6 4E800020
+
+
+
+# --- Hidden layer
+
+<float.__fullcast> ALL
+9081000C 54002036 20004330 5400801E 90010008 C8010008 9061000C C8210008 80810010 FC210028 38210020 4E800020
+
+<float.__s32_fullcast> ALL
+9421FFE0 90810010 6C638000 3C808000
+b <float.__fullcast>
+
+<float.__u32_fullcast> ALL
+9421FFE0 90810010 38800000
+b <float.__fullcast>
+
+
+<float.__transpose> ALL
+102004A0 38210020 4E800020
+
+<qr7.__copy_low> ALL
+5000801E 7C17E3A6 4E800020
+
+<qr7.__custom_scale> ALL
+506044AE
+b <qr7.__copy_low>
+
+<u16.__transpose> ALL
+A0610008 A001000A 38210020 4E800020
+
+<s8.__transpose> ALL
+88610008 88010009 7C630774 38210020 7C000774 4E800020
+
+<s16.__transpose> ALL
+A8610008 A801000A 38210020 4E800020
+
+<u8.__transpose> ALL
+88610008 88010009 38210020 4E800020
+
+<int.__fullcast> ALL
+500344AE 9421FFE0 7C17E2A6 3863F000 90010018 5063801E 7C77E3A6 38631000 F021F008 3C000005 E001F008 5003021E 7C77E3A6 EC010028 F001F00A A8010008 A061000A 5400801F 40A00008 3C63FFFF 7C630214 80010018 7C17E3A6 38210020 4E800020
+
+<u32.__fullcast> ALL
+38600005
+b <int.__fullcast>
+
+<s32.__fullcast> ALL
+38600007
+b <int.__fullcast>

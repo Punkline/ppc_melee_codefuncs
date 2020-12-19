@@ -1,0 +1,497 @@
+	-==-
+
+
+Memory - Test 0a
+Call HSD.region* functions in various ways
+- put breakpoint at 802640f8 to check returns for validity
+[Punkline]
+NTSC 1.02 --- 802640f8 ---- be21011c -> Branch
+# start of CSS loading function
+stmw	r17, 0x011C (sp)
+# f14...f31 also available
+
+.macro ld, r, n; lis \r, \n @h; ori \r, \r, \n @l; .endm
+
+li r3, 0
+bl <HSD.region>
+
+li r3, 1
+bl <HSD.region>
+
+li r3, 2
+bl <HSD.region>
+# cr1.lt = bIsAvailable -- there is metadata available for this region
+# cr1.gt = bIsRAM      -- as opposed to ARAM, which can't be navigated directly by the CPU
+# cr1.eq = bIsArena     -- uses an Arena metadata structure instead of a Heap metadata structure
+# r3 = given ID
+# r4 = HSD Memory Region descriptor
+#      0x0 = Heap ID
+#      0x4 = point to Arena Boundary Descriptor
+#      0x8 = point to Address of Boundary Start
+#      0xC = Size of Region
+#      0x10 = Region Lo behavior
+#      0x14 = intialized flag? (1 = after init?)
+#      0x18 = disabled flag?   (1 = not available)
+#    - these are high level descriptors of potentially different types of managed memory
+
+# r5 = Heap region descriptor  -- only Dynamic OSHeaps, from ID 0...3 in 'Heap ID'
+#      0x0 = total bytes (in initial fragment)
+#      0x4 = point to first Free Fragment
+#      0x8 = point to first Allocated Fragment
+#    - these are descriptors specifically for the OSHeap memory manager
+
+# r6 = Arena region descriptor -- only for archive links in HSD Arena pushes
+#      0x0 = to next descriptor??
+#      0x4 = point to region boundary low pointer
+#      0x8 = point to region boundary high pointer
+#      0xC = point to first Allocated Push
+#    - these are descriptors specifically for the Archive arena memory manager
+
+# r7 = Address of region start -- may be virtual RAM Address (sign) or ARAM offset (no sign)
+# r8 = Region size
+# - these are returned regardless of memory region type
+
+# r9  = Arena Static descriptor
+# r10 = Arena Static Size
+# - these only return for IDs 2 ... 5
+
+
+
+li r3, 0
+li r4, 0x4000
+bl <HSD.region_bytes>
+li r3, 0
+li r4, -1
+bl <HSD.region_bytes>
+
+li r3, 5
+li r4, 0x4000
+bl <HSD.region_bytes>
+li r3, 5
+li r4, -1
+bl <HSD.region_bytes>
+# cr1.lt = bIsAvailable   -- this is true if a free fragment is available
+# cr1.gt = bIsRAM        -- as opposed to ARAM, which can't be navigated directly by the CPU
+# cr1.eq = bIsArena       -- uses an Arena metadata structure instead of a Heap metadata structure
+
+# r3 = first found free fragment (of sufficient size)
+# r4 = size of first found free fragment
+#    - these will be blank if bIsAvailable == False
+
+# r5 = region start
+# r6 = region size
+#    - these are almost always returned if the ID was correct
+
+# r7 = Free fragments counted in this region
+# r8 = Biggest free fragment counted in this region
+# r9 = Total free bytes counted in this region
+# r10 = Allocated fragments counted in this region
+# r11 = Biggest allocated fragment counted in this region
+# r12 = Total allocated bytes counted in this region
+#    - these will only count all of the region if the size you give it is not found
+#      - you can ensure this by using -1 as an input, which is checked with an unsigned comparison
+
+
+ld r3, 0x811ad6c0
+bl <HSD.region_address>
+ld r3, 0x817F8A00
+bl <HSD.region_address>
+
+ld r3, 0x629ea0
+bl <HSD.region_address>
+ld r3, 0xf96600
+bl <HSD.region_address>
+# cr1.lt = bInRegion      -- this fragment belongs to an HSD Memory Region
+# cr1.gt = bIsAlloc       -- this fragment is currently allocated
+# cr1.eq = bIsArena       -- uses an Arena metadata structure instead of a Heap metadata structure
+# r3 = HSD Memory Region ID (-1 if not part of HSD Memory)
+# r4 = Base of allocated/freed fragment
+# r5 = Offset of (given address) from Base
+# r6 = Size of this fragment
+# r7 = Fragment Metadata
+# r8 = Heap/Arena Descriptor
+# r9 = HSD Memory Region Descriptor
+# r10 = copy of given query
+
+
+_return:
+lis	r4, 0x803F
+.long 0
+
+
+	-==-
+
+
+Memory - Test 0b
+performs basic allocations with <alloc> at CSS
+- simple implementation like this will have much smaller size requirement than other allocation features
+[Punkline]
+NTSC 1.02 --- 802640f8 ---- be21011c -> Branch
+# start of CSS loading function
+stmw	r17, 0x011C (sp)
+# f14...f31 also available
+
+li r3, 0x400
+bl <alloc>
+li r3, 0
+li r4, 0x400
+bl <alloc>
+# these two calls are identical -- the first one is just a shorthand syntax for the second
+# - type 0 is the safest region to allocate from, and represents the 'object heap'
+# - these allocations are destroyed at the end of each minor scene transition
+
+li r3, 4
+li r4, 0x800
+bl <alloc>
+# this should reserve bytes in the preload section
+# - this may or may not be safe in the absolute worst preload cases
+# - you can experiment with it by changing the size to something else
+
+_return:
+lis	r4, 0x803F
+.long 0
+
+
+	-==-
+
+
+Memory - Test 1
+Generate pushes for OS and HSD Arenas, and make allocations for them all at CSS
+Logs messages displaying resulting RAM addresses
+[Punkline]
+Revision ---- DOL Offset ---- Hex to Replace ---------- ASM Code -
+<MyArenaPush_Pointer> NTSC 1.02
+00000000 # reserved for OSArenaHi push pointer
+00000000 # define static push size here
+# - this defines the OSArena push made at boot
+
+
+# The following increase the sizes of the various HSD arenas, at boot:
+00000000 # define bytes to add to HSD[2] size
+00000000 # define bytes to add to HSD[3] size
+00000000 # define bytes to add to HSD[4] size
+# - increasing these sizes decreases the overall number of bytes in HSD[0] -- the object heap
+# - these regions are mapped to RAM
+
+00040000 # define bytes to add to HSD[5] size
+# - increasing this size will decreases the overall number of bytes in HSD[1] -- the aux heap?
+# - these regions are mapped to ARAM
+
+NTSC 1.02 --- 0x80375324 ---- 93810008 -> Branch
+
+# at boot, before memory managers are initialized...
+rData=31
+
+lis r31, <<MyArenaPush_Pointer>>@h
+ori r31, r31, <<MyArenaPush_Pointer>>@l
+# get data BA
+
+li r3, -1
+lwz r4, 0x4(rData)
+bl <HSD.region_push>
+stw r4, 0x0(rData)
+# push OSArena, and save pointer to start of push in global data table
+
+addi rData, rData, 4
+li r29, 2
+_for_each_region:
+  mr r3, r29
+  lwzu r4, 0x4(rData)
+  bl <HSD.region_push>
+  addi r29, r29, 1
+  cmpwi r29, 6
+  blt+ _for_each_region
+  # apply push to every region's static data, before they are first generated
+
+stw r28, 0x0008 (sp)
+.long 0
+
+------------- 0x802640F8 ---- BE21011C -> Branch
+
+# start of CSS loading function
+stmw	r17, 0x011C (sp)
+# f14...f31 also available
+rStr=31; rOSArena=28; rID=29
+alloc_size = 0x800
+
+bl <point.inline>
+b 100f
+
+  0: .asciz " HSD[%d] has allocated %8x with %x bytes"
+  .align 2
+
+100:
+lis r0, <<MyArenaPush_Pointer>>@h
+ori r30, r0, <<MyArenaPush_Pointer>>@l
+mr rStr, r3
+lwz rOSArena, 0(r30)
+li rID, 0
+
+_for_each_region:
+  cmpwi rID, 5
+  bgt- _return
+  cmpwi rID, 2
+  cmpwi cr1, rID, 3
+  cror 0, 2, 6
+  bf+ 0, 0f
+  # full persistence requires extra check, to avoid memory leak
+
+    lwz r0, 0(rOSArena)
+    lis r3, 0xBEEF
+    cmpw r0, r3
+    bne cr1, 1f
+      stw r3, 0(rOSArena)
+    1: beq+ _next_ID
+    # if this is the first allocation, from the high BEEF keyword, then proceed with alloc
+
+  0:
+  mr r3, rID
+  li r4, alloc_size
+  bl <alloc>
+  mr r6, r5
+  mr r5, r3
+  mr r3, rStr
+  mr r4, rID
+  bl <log.printf>
+
+  _next_ID:
+  addi rID, rID, 1
+  b _for_each_region
+
+_return:
+lis	r4, 0x803F
+.long 0
+
+
+	-==-
+
+
+Memory - Test 2
+Print log messages at the end of ever scene change announcing memory region information
+[Punkline]
+
+NTSC 1.02 --- 801a409c ---- 819b0004 -> Branch
+# After minor scene memory wipe...
+# Before minor scene setup...
+
+bl <point.inline>
+b 0f
+  .asciz "Before Initialization"
+  .align 2
+0:
+mr r4, r3
+li r3, 0xFF
+bl <log.printf_HSD_region_summary>
+
+_return:
+lwz	r12, 0x0004 (r27)
+.long 0
+
+
+
+NTSC 1.02 --- 801a40e8 ---- 807a0004 -> Branch
+# After minor scene setup...
+bl <point.inline>
+b 0f
+  .asciz "After Initialization"
+  .align 2
+0:
+mr r4, r3
+li r3, 0xFF
+bl <log.printf_HSD_region_summary>
+
+_return:
+lwz r3, 0x4(r26)
+.long 0
+
+NTSC 1.02 --- 801a40f4 ---- 3c608047 -> Branch
+# After minor scene loop has completed...
+bl <point.inline>
+b 0f
+  .asciz "Old Scene memory"
+  .align 2
+0:
+mr r4, r3
+li r3, 0xFF
+bl <log.printf_HSD_region_summary>
+_return:
+lis	r3, 0x8047
+.long 0
+
+NTSC 1.02 --- 8037e390 ---- 80010014 -> Branch
+# Once per scene frame...
+# - print if pressing or holding DPad Down
+#   - if holding longer than 45 frames, another print is made every 8 frames that hold continues
+
+
+# --- MPad structure
+MPad.address = 0x804C1FAC
+# This base address can be used to reach the vanilla MPad structures, without any codes
+# If you have the module installed, you can use <PPad.pad> or <PPad.mode> to get an indexed MPad
+# - Otherwise, you can use the MPad.size symbol to create your own index
+
+
+# --- Controller Digital Data bools - these are mapped in each of the button fields
+MPad.crf.mCStick = 0x20
+MPad.bCStick    =  8;  MPad.mCStick    = 0xF00000   # --- CStick nibble
+MPad.bCRight    =  8;  MPad.mCRight    = 0x800000   # Right on CStick
+MPad.bCLeft     =  9;  MPad.mCLeft     = 0x400000   # Left  on CStick
+MPad.bCDown     = 10;  MPad.mCDown     = 0x200000   # Down  on CStick
+MPad.bCUp       = 11;  MPad.mCUp       = 0x100000   # Up    on CStick
+
+MPad.crf.mStick = 0x10
+MPad.bStick     = 12;  MPad.mStick     = 0x0F0000   # --- Stick nibble
+MPad.bRight     = 12;  MPad.mRight     = 0x080000   # Right on Directional-Stick
+MPad.bLeft      = 13;  MPad.mLeft      = 0x040000   # Left  on Directional-Stick
+MPad.bDown      = 14;  MPad.mDown      = 0x020000   # Down  on Directional-Stick
+MPad.bUp        = 15;  MPad.mUp        = 0x010000   # Up    on Directional-Stick
+
+MPad.crf.mOther = 0x8
+MPad.bOther     = 16;  MPad.mOther     = 0x00F000   # --- Other nibble
+MPad.bStart     = 19;  MPad.mStart     = 0x001000   # Start Button
+
+MPad.crf.mButtons = 0x4
+MPad.bButtons   = 20;  MPad.mButtons   = 0x000F00   # --- Buttons nibble
+MPad.bY         = 20;  MPad.mY         = 0x000800   # Y Button
+MPad.bX         = 21;  MPad.mX         = 0x000400   # X Button
+MPad.bB         = 22;  MPad.mB         = 0x000200   # B Button
+MPad.bA         = 23;  MPad.mA         = 0x000100   # A Button
+
+MPad.crf.mShoulders = 0x2
+MPad.bShoulders = 24;  MPad.mShoulders = 0x0000F0   # --- Shoulders nibble
+MPad.bL         = 25;  MPad.mL         = 0x000040   # L Shoulder -- heavy press only
+MPad.bR         = 26;  MPad.mR         = 0x000020   # R Shoulder -- heavy press only
+MPad.bZ         = 27;  MPad.mZ         = 0x000010   # Z Button
+
+MPad.crf.mDPad = 0x1
+MPad.bDPad      = 28;  MPad.mDPad      = 0x00000F   # --- DPad nibble
+MPad.bDUp       = 28;  MPad.mDUp       = 0x000008   # Up    on Digital-Pad
+MPad.bDDown     = 29;  MPad.mDDown     = 0x000004   # Down  on Digital-Pad
+MPad.bDRight    = 30;  MPad.mDRight    = 0x000002   # Right on Digital-Pad
+MPad.bDLeft     = 31;  MPad.mDLeft     = 0x000001   # Left  on Digital-Pad
+# MPad.crf.m* values can be used to generate masks for mtcrf instructions
+MPad.xOnAuto = 0xC
+
+lis r3, MPad.address@h
+ori r3, r3, MPad.address@l
+lwz r3, MPad.xOnAuto(r3)
+andi. r0, r3, MPad.mDDown
+beq+ _return
+  bl <point.inline>
+  b 0f
+    .asciz "User Query"
+    .align 2
+  0:
+  mr r4, r3
+  li r3, 0xFF
+  bl <log.printf_HSD_region_summary>
+
+_return:
+lwz	r0, 0x0014 (sp)
+.long 0
+
+
+	-==-
+
+
+Memory - Test 3
+Try making a small allocation multiple times without enough arena space to load them with <alloc.try>
+[Punkline]
+NTSC 1.02 --- 802640f8 ---- be21011c -> Branch
+# start of CSS loading function
+stmw	r17, 0x011C (sp)
+# f14...f31 also available
+li r31, -1
+
+_while:
+  li r3, 2
+  addi r31, r31, 1
+  li r4, 0x80
+  bl <alloc.try>
+  cmpwi r3, 0
+  bne+ _while
+
+bl <point.inline>
+b 100f
+  .asciz "After filling HSD[2]"
+  .align 2
+
+100:
+mr r4, r3
+li r3, 0xFF
+bl <log.printf_HSD_region_summary>
+# function is from test 2
+
+_return:
+lis	r4, 0x803F
+.long 0
+
+
+	-==-
+
+
+Memory - Test 4
+Print a log message that shows a change in Object Heap size after <alloc.force_free> is applied to relocation tables
+[Punkline]
+
+NTSC 1.02 --- 80016c44 ---- 7fc3f378 -> Branch
+li r3, 0
+li r4, -1
+bl <HSD.region_bytes>
+mr r31, r9
+mr r3, r30
+bl <archive.RT_free>
+
+li r3, 0
+li r4, -1
+bl <HSD.region_bytes>
+
+bl <point.inline>
+b 100f
+  0: .asciz " Gained %\x23 8x bytes from RT Fragment in %s"
+  1: .asciz "Resulting frag"
+  .align 2
+
+100:
+sub r4, r9, r31
+mr r31, r3
+addi r3, r31, 0b-0b
+mr r5, r29
+bl <log.printf>
+
+li r3, 0xC01
+addi r4, r31, 1b-0b
+bl <log.printf_HSD_region_summary>
+
+_return:
+mr r3, r30
+.long 0
+
+
+<archive.RT_free> NTSC 1.02
+# Recycles the relocation table in archive objects
+# r3 = a newly initializise archive object
+rArch=3; rAlign=3; rCount=4; rRT=5
+xRTCount=0x8
+xRTPoint=0x24
+lwz rCount, xRTCount(rArch)
+lwz rRT, xRTPoint(rArch)
+cmpwi rCount, 24
+bltlr-
+# if less than 0x60 bytes are available, then do not modify this RT
+
+lis r0, 0xDEAD
+addi rAlign, rRT, 0x27
+stw r0, 0x4(rRT)
+rlwinm rAlign, rAlign, 0, ~0x1F
+# alignment, + 8 bytes for preserving first RT offset, and the DEAD0000 keyword
+# - the first offset may be used to check if a file has been relocated or not, and is preserved
+# - the DEAD0000 keyword can be used by other codes checking for this code's modification
+
+sub r0, rAlign, rRT
+srwi r6, r0, 2
+sub r0, rCount, r6
+rlwinm rCount, r0, 2, ~0x1F
+# rCount is now a number of bytes to use in <alloc.force_free>
+
+b <alloc.force_free>

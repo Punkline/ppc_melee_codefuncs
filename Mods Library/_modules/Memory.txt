@@ -1,0 +1,357 @@
+-==-
+
+Memory Management Functions
+[Punkline]
+<alloc> NTSC 1.02
+# Allocate a number of bytes in RAM for storing data over the course of a scene, or longer
+# - Scene Object Allocations are the safest to allocate in most scenes, because of available space
+#   - game will freeze if no more space is available on allocation requests
+
+
+# --- args:  Simple -  For Scene Object Allocations
+# r3 = number of bytes (larger than 5)
+#    - all allocations are rounded up to the nearest 0x20 byte ceiling alignment
+#    - all object allocations are destroyed at end of scene, and use OSHeap[1] -- the object heap
+
+
+# --- args:  Specific - For Other Allocations  - when r3 is a number between 0...5
+# r3 = HSD Memory Region ID
+#    - 0  -- HEAP  -- RAM -- the Object Heap (OSHeap[1])  - minor persistence
+#    - 1  -- HEAP? -- ARAM -- Excess ARAM fragment         - minor persistence
+#    - 2  -- ARENA -- RAM -- Priority Archive Arena       - full  persistence
+#    - 3  -- ARENA -- RAM -- Main Archive Arena           - full  persistence
+#    - 4  -- ARENA -- RAM -- Preload Archive Arena        - major persistence
+#    - 5  -- ARENA -- ARAM -- Aux Preload Archive Arena    - major persistence
+# r4 = number of bytes
+#    - all allocations are rounded up to the nearest 0x20 byte ceiling alignment
+#    - allocation volatility is determined by the region type
+
+
+# --- returns:
+# r3 = address of allocation
+# r4 = Arena metadata for this allocation, if applicable (types 2...5)
+# r5 = number of bytes allocated (after alignment)
+# r6 = number of bytes allocated and zeroed (before alignemnt)
+# r7 = HSD Memory Region ID
+38A00000
+b <alloc.__zero_handler>
+
+
+
+
+<alloc.zero> NTSC 1.02
+# Allocate bytes like <alloc> -- but also copy the value '0' to all allocated bytes
+
+# --- args:  Simple -  For Scene Object Allocations
+# r3 = number of bytes (larger than 5)
+
+# --- args:  Specific - For Other Allocations  - when r3 is a number between 0...5
+# r3 = HSD Memory Region ID
+# r4 = number of bytes
+
+# --- returns:
+# r3 = address of allocation
+# r4 = Arena metadata for this allocation, if applicable (types 2...5)
+# r5 = number of bytes allocated (after alignment)
+# r6 = number of bytes allocated and zeroed (before alignemnt)
+# r7 = HSD Memory Region ID
+38A00001
+b <alloc.__zero_handler>
+
+
+
+
+<alloc.try> NTSC 1.02
+# Checks to see if an allocation is possible before committing to it
+# If it's not possible, then the allocation address is returned as null '0' instead of an address
+38A00000
+b <alloc.__try_zero_handler>
+
+
+
+
+<alloc.try_zero> NTSC 1.02
+# A combination of <alloc.try> and <alloc.zero>
+38A00001
+b <alloc.__try_zero_handler>
+
+
+
+
+<alloc.free> NTSC 1.02
+# Free a dynamically allocated fragment from the Object Heap
+# - can only be applied to allocations that have contiguous OSHeap metadata at offset -0x20
+
+# --- args:
+# r3 = start of allocation from OSHeap[1]
+b 0x8037f1b0
+
+
+
+<alloc.force> NTSC 1.02
+# Force a given RAM address to become a part of OSHeap[1] -- the dynamic object heap
+# Note: the first 0x20 bytes of this becomes metadata for the fragment
+# - splits existing fragments if needed when creating this fragment
+#   - if more bytes are in alloc than existing fragment, then alloc is aborted; returning nulls
+# - does not split or add to Arena sections, but can corrupt them temporarily
+
+# --- args:
+# r3 = address
+# r4 = bytes to allocate + 0x20 for the fragment metadata
+# - these must be 0x20-byte aligned, or else they will become truncated
+
+# --- returns:
+# cr1.lt = bIsHeap        -- forced fragment was already from the heap
+# cr1.gt = bIsAlloc       -- forced fragment was part of an already allocated fragment
+# cr1.eq = bIsArena       -- forced fragment is corrupting part of an Arena region
+# r3 = address of fragment start (given address + 0x20)
+# r4 = number of bytes added
+# r5 = address of generated fragment metadata (given address + 0)
+# r6 = Arena metadata, if applicable to found region
+# r7 = HSD Memory Region ID, if applicable
+38A00000
+b <alloc.__force_free_handler>
+
+
+
+
+
+<alloc.force_free> NTSC 1.02
+# Immediately free a forced allocation so that it becomes available for other memory requests
+# - extends the object heap
+
+# --- args:
+# r3 = address
+# r4 = bytes to allocate + 0x20 for the fragment metadata
+# - these must be 0x20-byte aligned, or else they will become truncated
+
+# --- returns:
+# cr1.lt = bIsHeap        -- forced fragment was already from the heap
+# cr1.gt = bIsAlloc       -- forced fragment was part of an already allocated fragment
+# cr1.eq = bIsArena       -- forced fragment is corrupting part of an Arena region
+# r3 = address of fragment start (given address + 0x20)
+# r4 = number of bytes added
+# r5 = address of generated fragment metadata (given address + 0)
+# r6 = Arena metadata, if applicable to found region
+# r7 = HSD Memory Region ID, if applicable
+38A00001
+b <alloc.__force_free_handler>
+
+
+
+
+<HSD.region> NTSC 1.02
+# Converts an input ID (0...5) into a corresponding HSD Memory Region
+# - this info can be used to navigate all known allocations, or freed fragments in a given region
+
+# --- args:
+# r3 = HSD Memory Region ID
+# - 0  --  HEAP  -- RAM -- the Object Heap (OSHeap[1])
+# - 1  -- ARENA? -- ARAM -- Excess ARAM fragment
+# - 2  -- ARENA  -- RAM -- Priority Archive Arena
+# - 3  -- ARENA  -- RAM -- Main Archive Arena
+# - 4  -- ARENA  -- RAM -- Preload Archive Arena
+# - 5  -- ARENA  -- ARAM -- Auxiliary Preload Archive Aena (ARAM)
+
+# --- returns:
+# cr1.lt = bIsAvailable -- there is metadata available for this region
+# cr1.gt = bIsRAM      -- as opposed to ARAM, which can't be navigated directly by the CPU
+# cr1.eq = bIsArena     -- uses an Arena metadata structure instead of a Heap metadata structure
+# r3 = given ID
+# r4 = HSD Memory Region descriptor
+#      0x0 = Heap ID
+#      0x4 = point to Arena Boundary Descriptor
+#      0x8 = point to Address of Boundary Start
+#      0xC = Size of Region
+#      0x10 = Region Lo behavior
+#      0x14 = intialized flag? (1 = after init?)
+#      0x18 = disabled flag?   (1 = not available)
+#    - these are high level descriptors of potentially different types of managed memory
+
+# r5 = Heap region descriptor  -- only Dynamic OSHeaps, from ID 0...3 in 'Heap ID'
+#      0x0 = total bytes (in initial fragment)
+#      0x4 = point to first Free Fragment
+#      0x8 = point to first Allocated Fragment
+#    - these are descriptors specifically for the OSHeap memory manager
+
+# r6 = Arena region descriptor -- only for archive links in HSD Arena pushes
+#      0x0 = to next descriptor??
+#      0x4 = point to region boundary low pointer
+#      0x8 = point to region boundary high pointer
+#      0xC = point to first Allocated Push
+#    - these are descriptors specifically for the Archive arena memory manager
+
+# r7 = Address of region start -- may be virtual RAM Address (sign) or ARAM offset (no sign)
+# r8 = Region size
+# - these are returned regardless of memory region type
+
+# r9  = Arena Static descriptor
+# r10 = Arena Static Size
+# - these only return for IDs 2 ... 5
+28030005 38800000 7C840120 38A00000 38C00000 38E0FFFF 39000000 39200000 39400000 40A10014 810DBCD0 80EDA570 7D074050 48000070 3C008043 60041FB0 1C03001C 7C840214 3403FFFE 41A0001C 3D20803B 6129A380 540A2036 7D295214 8149000C 48000004 80040000 2C00FFFF 41820014 4C842342 80ADBCC0 1C00000C 7CA50214 80040004 2C00FFFF 41820010 4C842342 7C060378 4CC63342 80E40008 8104000C 3C008180 7C070000 4CA00382 4E800020
+
+
+
+<HSD.region_bytes> NTSC 1.02
+# Checks for the first occurance of a free fragment large enough to allocate argument byte size
+# - if bytes are specified as -1, then full returns are given with a summary of the region
+
+# --- args:
+# r3 = HSD Memory Region ID
+# r4 = byte count
+
+# --- returns
+# cr1.lt = bIsAvailable   -- this is true if a free fragment is available
+# cr1.gt = bIsRAM        -- as opposed to ARAM, which can't be navigated directly by the CPU
+# cr1.eq = bIsArena       -- uses an Arena metadata structure instead of a Heap metadata structure
+
+# r3 = first found free fragment (of sufficient size)
+# r4 = size of first found free fragment
+#    - these will be blank if bIsAvailable == False
+
+# r5 = region start
+# r6 = region size
+#    - these are almost always returned if the ID was correct
+
+# r7 = Free fragments counted in this region
+# r8 = Biggest free fragment counted in this region
+# r9 = Total free bytes counted in this region
+# r10 = Allocated fragments counted in this region
+# r11 = Biggest allocated fragment counted in this region
+# r12 = Total allocated bytes counted in this region
+#    - these will only count all of the region if the size you give it is not found
+#      - you can ensure this by using -1 as an input, which is checked with an unsigned comparison
+7C0802A6 9421FF00 90010104 BEC10010 7F800026 7C9B2378
+bl <HSD.region>
+39200000 3AC10080 39600000 7CDA3378 39400000 7CA02B78 39800000 7CE53B78 38E00000 7D064378 39000000 7CF6C5AA 408400D0 4D084102 38600000 4C842102 38800000 2C1A0000 41A00018 7C1A0378 833A0004 3B000004 3AE00008 48000014 3B000000 833A000C 3AE00008 3AD6000C 7FB664AA 48000038 7C19B82E 7D9B0040 7E1E0040 4DA66B82 41AD0010 38790020 80990008 4800006C 40B00008 7C1E0378 7FFF0214 7F39C02E 3BBD0001 2C190000 4180FFC8 7FB665AA 41880048 41860018 3AD6000C 833A0008 3B60FFFF 4D084342 4BFFFFA0 7FFF3050 7D9BF840 7F25FA14 418D0010 7F23CB78 4C842342 7FE4FB78 38000001 93F6FFF8 9016FFF4 93F6FFFC 3AC10080 7CF6C4AA 7F8BF120 BAC10010 80010104 38210100 7C0803A6 4E800020
+
+
+
+
+<HSD.region_address> NTSC 1.02
+# Checks if the given address falls within the boundaries of any known allocations in HSD memory
+
+# --- args:
+# r3 = address
+
+# --- returns:
+# cr1.lt = bInRegion      -- this fragment belongs to an HSD Memory Region
+# cr1.gt = bIsAlloc       -- this fragment is currently allocated
+# cr1.eq = bIsArena       -- uses an Arena metadata structure instead of a Heap metadata structure
+# r3 = HSD Memory Region ID (-1 if not part of HSD Memory)
+# r4 = Base of allocated/freed fragment
+# r5 = Offset of (given address) from Base
+# r6 = Size of this fragment
+# r7 = Fragment Metadata
+# r8 = Heap/Arena Descriptor
+# r9 = HSD Memory Region Descriptor
+# r10 = copy of given query
+
+7C0802A6 9421FF00 90010104 BF410010 7C7F1B78 3BA00005 7FA3EB78
+bl <HSD.region>
+2C1F0000 4C002A42 4C840202 408400B4 7CC03378 7D064378 7FC73214 7CFA3B78 4CA52B42 41A60018 7CA82B78 3B800008 80E80008 3B600004 48000050 7C080378 3B800008 80E8000C 3B600000 4800003C 7CC7E02E 7CE43B78 40860008 80870004 7C1F2000 7C043214 4C800042 7C1F0000 4C840202 7C00D000 40A10008 7C1A0378 4184006C 7CE7D82E 2C070000 4180FFC4 4CA52842 41A60010 41850028 80E80004 4BFFFFE8 7C1FD000 41A00018 7C1FF000 40800010 38E00000 7F44D378 48000030 37BDFFFF 4080FF34 38800000 39200000 3860FFFF 7D240120 38A00000 38C00000 39000000 38E00000 48000014 4086000C 38840020 38C6FFE0 7CA4F850 7FEAFB79 3C008180 4CA00382 7C0A0000 4CA50202 BB410010 80010104 38210100 7C0803A6 4E800020
+
+
+
+
+<HSD.region_push> NTSC 1.02
+# Push the size of a given region by adding/subtracting to the static size description
+# You may 'pop' as well by using a negative byte value
+# - pushes will not affect region sizes until the next scene transition
+# - OSArena pushes are only possible at game boot, before memory initializes
+
+# --- args:
+# r3 = HSD Memory Region ID (0 and 1 can't be pushed)
+# - if an invalid ID is given, the OSArena will be pushed instead, if possible
+# r4 = bytes to add/subtract to Region
+
+# --- return:
+# r3 = new byte total
+# r4 = address of push start (if OSArena)
+7C0802A6 9421FFE0 90010024 90810010
+bl <HSD.region>
+38800000 80610010 2C090000 41A0002C 808DBCD0 800DA570 7C832050 7C002000 40A10008 7C040378 908DBCD0 806DBBDC 7C641850 4800000C 7C635214 9069000C 80010024 38210020 7C0803A6 4E800020
+
+
+
+
+# --- (hidden layer)
+
+<alloc.__zero_handler>
+# Hidden handler that drives both <alloc> and <alloc.zero>
+
+# --- args:  Simple -  For Scene Object Allocations
+# r3 = number of bytes (larger than 5)
+# r5 = zero bool
+
+# --- args:  Specific - For Other Allocations  - when r3 is a number between 0...5
+# r3 = HSD Memory Region ID
+# r4 = number of bytes
+# r5 = zero bool
+
+# --- returns:
+# r3 = address of allocation
+# r4 = Arena metadata for this allocation, if applicable (types 2...5)
+# r5 = number of bytes allocated (after alignment)
+# r6 = number of bytes allocated and zeroed (before alignemnt)
+# r7 = HSD Memory Region ID
+7C0802A6 9421FFC0 90010044 BF410010 2C030005 7CBA2B78 3BC00000 7C7F1B78 41A1000C 7C7E1B78 7C9F2378 381F001F 541D0035 7FC3F378 7FE4FB78
+bl 0x80015bd0
+281E0002 3B600000 7C7C1B78 41A0000C 7C7B1B78 83830004 73400001 41A20010 7F83E378 7FE4FB78
+bl 0x8000c160
+7F83E378 7F64DB78 7FA5EB78 7FE6FB78 7FC7F378 BB410010 80010044 38210040 7C0803A6 4E800020
+
+
+
+
+<alloc.__try_zero_handler> NTSC 1.02
+# Hidden handler that drives both <alloc.try> and <alloc.try_zero>
+
+# --- args:  Simple -  For Scene Object Allocations
+# r3 = number of bytes (larger than 5)
+
+# --- args:  Specific - For Other Allocations  - when r3 is a number between 0...5
+# r3 = HSD Memory Region ID
+# r4 = number of bytes
+
+# --- returns:
+# cr1.lt = bIsAvailable -- there is metadata available for this region
+# cr1.gt = bIsRAM      -- as opposed to ARAM, which can't be navigated directly by the CPU
+# cr1.eq = bIsArena     -- uses an Arena metadata structure instead of a Heap metadata structure
+# r3 = address of allocation
+# r4 = Arena metadata for this allocation, if applicable (types 2...5)
+# r5 = number of bytes allocated (after alignment)
+# r6 = number of bytes allocated and zeroed (before alignemnt)
+# r7 = HSD Memory Region ID
+7C0802A6 9421FFC0 90010044 28030005 4081000C 7C641B78 38600000 90610010 90810014 90A10018
+bl <HSD.region_bytes>
+41840018 38600000 38800000 38A00000 80C10010 48000018 80610010 80810014 80A10018
+bl <alloc.__zero_handler>
+4C842342 80010044 38210040 7C0803A6 4E800020
+
+
+
+<alloc.__force_free_handler> NTSC 1.02
+# Hidden handler that drives both <alloc.force> and <alloc.force_free>
+
+# --- args:
+# r3 = address
+# r4 = bytes to allocate + 0x20 for the fragment metadata
+# r5 = free bool
+
+# --- returns:
+# cr1.lt = bIsHeap        -- forced fragment was already from the heap
+# cr1.gt = bIsAlloc       -- forced fragment was part of an already allocated fragment
+# cr1.eq = bIsArena       -- forced fragment is corrupting part of an Arena region
+# r3 = address of fragment start (given address + 0x20)
+# r4 = number of bytes added
+# r5 = address of generated fragment metadata (given address + 0)
+# r6 = Arena metadata, if applicable to found region
+# r7 = HSD Memory Region ID, if applicable
+7C0802A6 9421FFC0 90010044 BF210010 3803001F 541E0034 90A10030 549D0034 3BFE0020 7FC3F378
+bl <HSD.region_address>
+7C7A1B78 7CFC3B78 40A40030 4C843102 40A40028 7C053050 7C1D0000 3B800000 41A00018 3BC00000 3BE00000 3BA00000 57390206 4800004C 7F200026 38600000
+bl <HSD.region>
+80650008 38800000 2C030000 93BE0008 907E0004 901E0000 40800008 80830000 93C50008 909E0000 80010030 70000001 41A2000C 7FE3FB78
+bl 0x8037f1b0
+7FE3FB78 7FA4EB78 7FC5F378 7F86E378 7F47D378 7F240120 BB210010 80010044 38210040 7C0803A6 4E800020

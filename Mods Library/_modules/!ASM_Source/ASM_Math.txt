@@ -1,0 +1,380 @@
+-==-
+
+Math Functions
+[?, HSD, Punkline]
+<rand> NTSC 1.02
+b 0x803804f8
+<randf> NTSC 1.02
+b 0x80380528
+<randi> NTSC 1.02
+b 0x80380580
+<fill.rand> NTSC 1.02
+rOut = 31; rBuffer = 30; rLength = 29
+mflr r0
+stwu sp, -0x20(sp)
+stw  r0,  0x20+4(sp)
+stmw r29, 0x10(sp)
+mr rBuffer, r3
+addi rOut, r3, -2
+mr. rLength, r4
+ble- _return
+# only fill if a length was given
+
+_for_n_hwords:
+  lis r3, 2
+  subi r3, r3, 1  # a 17-bit 2's complement modulo should provide good entropy for hword fill
+  bl <randi>
+  subic. rLength, rLength, 2
+  blt- _for_odd_byte
+  sthu r3, 0x2(rOut)
+  bgt+ _for_n_hwords
+  b _return
+
+_for_odd_byte:
+stb r3, 0x2(rOut)
+# we fill with hwords, but string might be unaligned to hwords
+# - this extra byte at the end handles this case, if it applies
+
+_return:
+mr r3, rBuffer
+lmw  r29, 0x10(sp)
+lwz  r0,  0x20+4(sp)
+addi sp, sp, 0x20
+mtlr r0
+blr
+
+<sin> NTSC 1.02
+b 0x803263d4
+<cos> NTSC 1.02
+b 0x80326240
+<tan> NTSC 1.02
+b 0x803261bc
+<atan> NTSC 1.02
+b 0x80022e68
+<asin> NTSC 1.02
+b 0x80022dbc
+<acos> NTSC 1.02
+b 0x80022d1c
+<atan2> NTSC 1.02
+b 0x80022c30
+<rsqrt> NTSC 1.02
+b 0x80022df8
+<sqrt> NTSC 1.02
+mflr r0
+stwu sp, -0x20(sp)
+stw  r0,  0x20+4(sp)
+stfs f1, 0x10(sp)
+bl <rsqrt>
+lfs f0, 0x10(sp)
+fmuls f1, f1, f0
+lwz  r0,  0x20+4(sp)
+addi sp, sp, 0x20
+mtlr r0
+blr
+
+
+<lerp2> ALL
+# quickly interpolate between 1 or 2 ranges
+# f1 = coef
+# p2 = (a1, a2)
+# p3 = (b1, b2)
+# --- returns:
+# p4 = (c1, c2)
+ps_sub f4, f3, f2
+ps_add f4, f4, f2
+ps_muls0 f4, f1, f4
+blr
+
+
+<lerp4> ALL
+# quickly interpolate between 2 ... 4 ranges
+# f1 = coef
+# p2 = (a1, a2)
+# p3 = (a3, a4)
+# p4 = (b1, b2)
+# p5 = (b3, b4)
+# --- returns:
+# p6 = (c1, c2)
+# p7 = (c3, c4)
+ps_sub f6, f4, f2
+ps_sub f7, f5, f3
+ps_add f6, f6, f2
+ps_add f7, f7, f3
+ps_muls0 f6, f1, f6
+ps_muls0 f7, f1, f7
+blr
+
+
+<norm> ALL
+# Input uses a floating point range floor ... ceil to create a coef value scaled between 0.0 ... 1.0
+# --- args:
+# f1 = index  - value to scale between floor and ceil
+# f2 = floor  - 0.0 key
+# f3 = ceil   - 1.0 key
+
+# --- returns:
+# f1 = Coef, Reciprocal Coef:
+#    p0 = Coef - the percent (0.0 ... 1.0) that index falls in range of [floor ... ceil]
+#    p1 = RCoef - the number of times [floor ... index] fits inside of [floor ... ceil]
+
+fSwap=0;fI=1;fFull=1;fCoef=1;fFloor=2;fCeil=3
+ps_cmpo0 cr0, fI, fFloor
+bne+ 0f
+  b <float.zero>
+0:
+ps_cmpo0 cr0, fFloor, fCeil
+bne+ 0f
+  b <float.zero>
+0:
+ps_merge00 fI, fI, fCeil          # index, ceil
+ps_merge00 fFloor, fFloor, fFloor # floor, floor  -
+ps_sub fI, fI, fFloor             # num,   denom
+ps_merge10 fSwap, fFull, fFull    # denom, num
+# swap num and denom in fSwap
+
+ps_div fCoef, fFull, fSwap        # coef, recip
+blr
+# fCoef = Coef, reciprocal Coef
+# p0 = Coef - the percent (between 0.0 and 1.0) that f1 index falls in range of f2 floor and f3 ceil
+# p1 = Recip - the number of times f1 ... f2 fits inside of f2 ... f3
+
+
+
+<normi> ALL
+# A version of norm that casts its inputs from s32 using fast quantization register scaling
+# --- args:
+# r3 = index  - value to scale between floor and ceil
+# r4 = floor  - 0.0 key
+# r5 = ceil   - 1.0 key
+
+# --- returns:
+# f1 = Coef, Reciprocal Coef:
+#    p0 = Coef - the percent (0.0 ... 1.0) that index falls in range of [floor ... ceil]
+#    p1 = RCoef - the number of times [floor ... index] fits inside of [floor ... ceil]
+
+fLo=0;fSwap=0;fFull=1;fHi=1;fCoef=1;fNeg=12
+li r0, 0x1007 # signed <<16 scale hwrod pairs
+rlwimi r0, r0, 16, 0xFFFF0000
+stwu sp, -0x20(sp)
+mtspr 919, r0
+# assign selected type to qr7
+
+sub. r0, r3, r4
+# generate numerator by subtracting quantized floor value from index
+
+bne+ 0f
+  b <float.zero>
+  # handle case of dividing zero by anything by returning zero
+  # - skip expensive division
+
+0:
+sth r0, 0x14(sp)
+rlwinm r0, r0, 16, 0xFFFF
+sth r0, 0x10(sp)
+# write transposed numerator high and low
+
+sub. r0, r5, r4
+# generate denominator by subtracting quantized floor value from ceiling
+
+bne+ 0f
+  b <float.zero>
+  # handle case of dividing by zero by returning zero
+  # - prevents need for invoking slow exceptions if division produces infinity
+
+0:
+sth r0, 0x16(sp)
+rlwinm r0, r0, 16, 0xFFFF
+sth r0, 0x12(sp)
+# write transposed denominator high and low
+
+psq_l fHi, 0x10(sp), 0, 7 # signed high <<16
+psq_l fLo, 0x14(sp), 0, 3 # unsigned low <<0
+# fHi      fLo
+# hi, hi,  lo, lo
+
+addi sp, sp, 0x20
+# done with stack frame, and this is a leaf so we don't have to manage lr
+
+ps_neg fNeg, fLo
+ps_sel fLo, fHi, fLo, fNeg
+# Lows now reflect sign of high
+
+ps_add fFull, fHi, fLo
+# full numerator and denominator are now in fFull pair
+
+ps_merge10 fSwap, fFull, fFull
+# swap num and denom in fSwap
+
+ps_div fCoef, fFull, fSwap
+blr
+
+
+<float.zero> ALL
+# Simply loads zeroes into f1 and f0
+li r0, 0
+stwu sp, -0x20(sp)
+stw r0, 0x10(sp)
+lfs f1, 0x10(sp)
+addi sp, sp, 0x20
+fmr f0, f1
+blr
+
+-==-
+
+MTX Math Functions
+[MTX, HSD]
+<mtx.identity> NTSC 1.02
+b 0x803421a4
+<mtx.copy> NTSC 1.02
+b 0x803421d0
+<mtx.conc> NTSC 1.02
+b 0x80342204
+<mtx.transpose>
+b 0x803422d0
+<mtx.inverse> NTSC 1.02
+b 0x80342320
+<mtx.rotrad> NTSC 1.02
+b 0x80342530
+<mtx.rotrad1> NTSC 1.02
+b 0x80342418
+<mtx.rotrig1> NTSC 1.02
+b 0x80342488
+<mtx.trans> NTSC 1.02
+b 0x80342634
+<mtx.scale> NTSC 1.02
+b 0x80342668
+<mtx.quat> NTSC 1.02
+b 0x80342690
+<mtx.lookat> NTSC 1.02
+b 0x80342734
+<mtx.invconc> NTSC 1.02
+b 0x80379598
+<mtx.invtrans> NTSC 1.02
+b 0x80379a20
+<mtx.rot.get> NTSC 1.02
+b 0x80379c24
+<mtx.trans.get> NTSC 1.02
+b 0x80379f6c
+<mtx.scale.get> NTSC 1.02
+b 0x80379f88
+<mtx.rot> NTSC 1.02
+b 0x8037a120
+<mtx.srt> NTSC 1.02
+b 0x8037a250
+<mtx.srt.quat> NTSC 1.02
+b 0x8037a43c
+<mtx.add.scaled> NTSC 1.02
+b 0x8037a54c
+<quat.slerp> NTSC 1.02
+b 0x8037ef28
+<vec.add> NTSC 1.02
+b 0x80342d54
+<vec.sub> NTSC 1.02
+b 0x80342d78
+<vec.scale> NTSC 1.02
+b 0x80342d9c
+<vec.norm> NTSC 1.02
+b 0x80342db8
+<vec.mag> NTSC 1.02
+b 0x80342dfc
+<vec.dot> NTSC 1.02
+b 0x80342e38
+<vec.cross> NTSC 1.02
+b 0x80342e58
+
+-==-
+!
+Color Math Functions
+[Punkline]
+
+
+<color.mix> NTSC 1.02
+# invokes lerp4 to mix (interpolate) between 2 4-channel byte vectors
+# - intended for RGBA colors -- useful for anything that fits in data format though
+# --- args:
+# f1 = mix coef
+# r3 = RGBA color A
+# r4 = RGBA color B
+
+# --- returns:
+# r5 = mixed color C
+# f1...f7 = lerp4 returns
+mflr r0
+stwu sp, -0x20(sp)
+stw  r0,  0x20+4(sp)
+stw r3, 0x10(sp)
+stw r4, 0x14(sp)
+psq_l f2, 0x10(sp), 0, 2
+psq_l f4, 0x14(sp), 0, 2
+psq_l f3, 0x12(sp), 0, 2
+psq_l f5, 0x16(sp), 0, 2
+bl <lerp4>
+psq_st f6, 0x18(sp), 0, 2
+psq_st f7, 0x1A(sp), 0, 2
+lwz r5, 0x18(sp)
+lwz  r0,  0x20+4(sp)
+addi sp, sp, 0x20
+mtlr r0
+blr
+
+
+<color.maplerp> NTSC 1.02
+# Converts an integer index into a color interpolated from a table of indexed color keys
+# --- args:
+# r3 = idx
+# r4 = map table
+#      0x0 = 32-bit ordered index key
+#      0x4 = RGBA color for this key
+#      - if an index key smaller than the previous index key is found, the table terminates
+#        - in most cases, this makes 0 a valid null terminator
+# --- returns:
+# r3 = floor color
+# r4 = ceil color
+# r5 = indexed color interpolation
+# r6 = floor key
+# r7 = ceil key
+# r8 = given idx key
+# r9 = given map table
+
+# f1 ... f7 = lerp4 returns
+
+rMap=31; rColor=30; rThis=29
+rI=3; rFloor=4; rCeil=5; rReturn=5
+xNext=0x8
+mflr r0
+stwu sp, -0x40(sp)
+stw  r0,  0x40+4(sp)
+stmw r28, 0x10(sp)
+lwz rColor, 0x4(r4)
+mr. rMap, r4
+li rCeil, 0
+subi rThis, rMap, xNext
+bge- _return
+# if map isn't a pointer, don't attempt to load it and just return a null color
+
+_for_each_map_key:
+  mr rFloor, rCeil
+  lwzu rCeil, xNext(rThis)
+  cmplw rFloor, rCeil
+  bgt- _select_this
+  # if out of order key is found, assume it's a terminator and extrapolate past last key using idx
+
+    cmplw rI, rCeil
+    lwz rColor, 0x4(r)
+    bge+ _for_each_map_key
+
+_select_this:
+
+
+lmw  r28, 0x10(sp)
+lwz  r0,  0x40+4(sp)
+addi sp, sp, 0x40
+mtlr r0
+blr
+
+
+
+
+<color.mul> # Multiplies 4 channels together, assuming (0...FF) == (0.0...1.0)
+args:  rColorA = 3; rColorB = 4; rColorC = 5
+# - useful for applying 8-bit weights to 8-bit values of any kind, in tuples of 4

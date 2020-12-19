@@ -1,0 +1,613 @@
+-==-
+
+Math Functions
+[?, HSD, Punkline]
+<rand> NTSC 1.02
+# Produce a random 32-bit integer
+# --- returns:
+# r3 = rRand
+b 0x803804f8
+
+
+
+<randf> NTSC 1.02
+# Produce a random float between 0.0 and 1.0
+# --- returns:
+# f1 = fRand
+b 0x80380528
+
+
+
+<randi> NTSC 1.02
+# Produces a random integer between 0 and the given number
+# --- args:
+# r3 = rMax
+
+# --- returns:
+# r3 = rRand
+b 0x80380580
+
+
+
+<fill.rand> NTSC 1.02
+# Fill n bytes with random bits at target location
+# --- args:
+# r3 = rOut
+# r4 = rSize
+
+# --- returns
+# r3 = rOut
+7C0802A6 9421FFE0 90010024 BFA10010 7C7E1B78 3BE3FFFE 7C9D2379 40810028 3C600002 3863FFFF
+bl <randi>
+37BDFFFE 41800010 B47F0002 4181FFE8 48000008 987F0002 7FC3F378 BBA10010 80010024 38210020 7C0803A6 4E800020
+
+
+<sin> NTSC 1.02
+# Calculate sine of angle in f1
+# --- args:
+# f1 = fAngle
+
+# --- returns:
+# f1 = fSin
+b 0x803263d4
+
+
+
+<cos> NTSC 1.02
+# Calculate cosine of angle in f1
+# --- args:
+# f1 = fAngle
+
+# --- returns:
+# f1 = fCos
+b 0x80326240
+
+
+
+<tan> NTSC 1.02
+# Calculate tangent of angle in f1
+# --- args:
+# f1 = fAngle
+
+# --- returns:
+# f1 = fTan
+b 0x803261bc
+
+
+
+<atan> NTSC 1.02
+# Calculate arctangent of angle in f1
+# --- args:
+# f1 = fAngle
+
+# --- returns:
+# f1 = fAtan
+b 0x80022e68
+
+
+
+<asin> NTSC 1.02
+# Calculate arcsine of angle in f1
+# --- args:
+# f1 = fAngle
+
+# --- returns:
+# f1 = fAsin
+b 0x80022dbc
+
+
+<acos> NTSC 1.02
+# Calculate arccosine of angle in f1
+# --- args:
+# f1 = fAngle
+
+# --- returns:
+# f1 = fAcos
+b 0x80022d1c
+
+
+
+<atan2> NTSC 1.02
+# Calculate atan2 of f1
+# --- args:
+# f1 = fY
+# f2 = fX
+
+# --- returns:
+# f1 = fAtan2
+b 0x80022c30
+
+
+<rsqrt> NTSC 1.02
+# Calculate reciprocal square root (1 / SQRT)
+# --- args:
+# f1 = fValue
+
+# --- returns:
+# f1 = fRSQRT
+b 0x80022df8
+
+
+
+<sqrt> NTSC 1.02
+# Calculate square root from <rsqrt> * fValue
+# --- args:
+# f1 = fValue
+
+# --- returns:
+# f1 = fSQRT
+7C0802A6 9421FFE0 90010024 D0210010
+bl <rsqrt>
+C0010010 EC210032 80010024 38210020 7C0803A6 4E800020
+
+
+
+<lerp2> ALL
+# quickly interpolate between 1 or 2 ranges
+# f1 = coef
+# p2 = (a1, a2)
+# p3 = (b1, b2)
+# --- returns:
+# p4 = (c1, c2)
+10831028 1084102A 10810118 4E800020
+
+
+<lerp4> ALL
+# quickly interpolate between 2 ... 4 ranges
+# f1 = coef
+# p2 = (a1, a2)
+# p3 = (a3, a4)
+# p4 = (b1, b2)
+# p5 = (b3, b4)
+# --- returns:
+# p6 = (c1, c2)
+# p7 = (c3, c4)
+10C41028 10E51828 10C6102A 10E7182A 10C10198 10E101D8 4E800020
+
+
+
+<norm> ALL
+# Input uses a floating point range floor ... ceil to create a coef value scaled between 0.0 ... 1.0
+# --- args:
+# f1 = index  - value to scale between floor and ceil
+# f2 = floor  - 0.0 key
+# f3 = ceil   - 1.0 key
+
+# --- returns:
+# f1 = Coef, Reciprocal Coef:
+#    p0 = Coef - the percent (0.0 ... 1.0) that index falls in range of [floor ... ceil]
+#    p1 = RCoef - the number of times [floor ... index] fits inside of [floor ... ceil]
+10011040 40A20008
+b <float.zero>
+10021840 40A20008
+b <float.zero>
+10211C20 10421420 10211028 10010CA0 10210024 4E800020
+
+
+<normi> ALL
+# A version of norm that casts its inputs from s32 using fast quantization register scaling
+# --- args:
+# r3 = index  - value to scale between floor and ceil
+# r4 = floor  - 0.0 key
+# r5 = ceil   - 1.0 key
+
+# --- returns:
+# f1 = Coef, Reciprocal Coef:
+#    p0 = Coef - the percent (0.0 ... 1.0) that index falls in range of [floor ... ceil]
+#    p1 = RCoef - the number of times [floor ... index] fits inside of [floor ... ceil]
+38001007 5000801E 9421FFE0 7C17E3A6 7C041851 40A20008
+b <float.zero>
+B0010014 5400843E B0010010 7C042851 40A20008
+b <float.zero>
+B0010016 5400843E B0010012 E0217010 E0013014 38210020 11800050 1001602E 1021002A 10010CA0 10210024 4E800020
+
+
+
+<float.zero> ALL
+# Simply loads zeroes into f1 and f0
+38000000 9421FFE0 90010010 C0210010 38210020 FC000890 4E800020
+
+
+-==-
+
+MTX Math Functions
+[MTX, HSD]
+
+
+
+# --- 3x4 TRANSFORMATION MATRIX FUNCS
+
+<mtx.identity> NTSC 1.02
+# Assigns scale identity to 3x4 matrix
+# --- args:
+# r3 = rMtx
+b 0x803421a4
+
+
+
+<mtx.copy> NTSC 1.02
+# Copies 3x4 matrix from A to B
+# --- args:
+# r3 = rMtxA
+# r4 = rMtxB
+b 0x803421d0
+
+
+
+<mtx.conc> NTSC 1.02
+# Returns Translation Vector
+# --- args:
+# r3 = rMtx
+# r4 = rVec
+b 0x80342204
+
+
+
+<mtx.transpose> NTSC 1.02
+# Assigns transpose of mtx A to B
+# --- args:
+# r3 = rMtxA
+# r4 = rMtxB
+b 0x803422d0
+
+
+
+<mtx.inverse> NTSC 1.02
+# Attempts to assign inverse of A to B;  returning '1' if successful
+# --- args:
+# r3 = rMtxA
+# r4 = rMtxB
+
+# --- returns:
+# r3 = rSuccess
+b 0x80342320
+
+
+
+<mtx.rotrad> NTSC 1.02
+# Assigns a rotation to X, Y, and Z using given VEC weights
+# --- args:
+# r3 = rMtx
+# r4 = rVec
+# f1 = fRadians
+b 0x80342530
+
+
+
+<mtx.rotrad1> NTSC 1.02
+# Assigns a rotation to single axis X(0), Y(1), or Z(2)
+# Use rotrad to abstract away the trig functions, and calculate them internally
+# - radians is counter-clockwise
+# - 2Pi radians == 1 full rotation
+# --- args:
+# r3 = rMtx
+# r4 = rAxis
+# f1 = fSin
+b 0x80342418
+
+
+
+<mtx.rotrig1> NTSC 1.02
+# Assigns a rotation to a signle axis X(0), Y(1), or Z(2)
+# Use rotrig to handle the trig yourself, for precalculated args
+# --- args:
+# r3 = rMtx
+# r4 = rAxis
+# f1 = fSin
+# f2 = fCos
+b 0x80342488
+
+
+
+<mtx.trans> NTSC 1.02
+# Assigns a translation matrix using X, Y, and Z args
+# --- args:
+# r3 = rMtx
+# f1 = fX
+# f2 = fY
+# f3 = fZ
+b 0x80342634
+
+
+
+<mtx.scale> NTSC 1.02
+# Assigns scale XYZ to mtx
+# --- args:
+# r3 = rMtx
+# f1 = fX
+# f2 = fY
+# f3 = fZ
+b 0x80342668
+
+
+
+<mtx.quat> NTSC 1.02
+# Assigns rotation X, Y, and Z using given quaternion rQuat (1x4 mtx)
+# --- args:
+# r3 = rMtx
+# r4 = rQuat
+b 0x80342690
+
+
+
+<mtx.lookat> NTSC 1.02
+# Assigns rotation that looks at target, with camera params
+# --- args:
+# r3 = rMtx
+# r4 = rPos     - an X, Y, Z point in world-space
+# r5 = rUpdir   - an X, Y, Z vector (from rPos)
+# r6 = rTarget  - an X, Y, Z point in world-space
+b 0x80342734
+
+
+
+<mtx.invconc> NTSC 1.02
+# Returns inverse concatenation of mtx A and B in mtx C
+# --- args:
+# r3 = rMtxA
+# r4 = rMtxB
+# r5 = rMtxC
+b 0x80379598
+
+
+
+<mtx.invtrans> NTSC 1.02
+# Returns inverse translation of mtx A in mtx B
+# --- args:
+# r3 = rMtxA
+# r4 = rMtxB
+b 0x80379a20
+
+
+
+<mtx.rot.get> NTSC 1.02
+# Returns rotation XYZ in vec
+# --- args:
+# r3 = rMtx
+# r4 = rVec
+b 0x80379c24
+
+
+
+<mtx.trans.get> NTSC 1.02
+# Returns translation vec
+# --- args:
+# r3 = rMtx
+# r4 = rVec
+b 0x80379f6c
+
+
+
+<mtx.scale.get> NTSC 1.02
+# Returns scale vec
+# --- args:
+# r3 = rMtx
+# r4 = rVec
+b 0x80379f88
+
+
+
+<mtx.rot> NTSC 1.02
+# Rotate from vec
+# --- args:
+# r3 = rMtx
+# r4 = rVec
+b 0x8037a120
+
+
+
+<mtx.srt> NTSC 1.02
+# Scale, Rotate, and Translate
+# --- args
+# r3 = rMtx
+# r4 = rScale vec
+# r5 = rRot vec
+# r6 = rScale vec
+# r7 = rOrigin vec
+b 0x8037a250
+
+
+
+<mtx.srt.quat> NTSC 1.02
+# Scale, Rotate and Translate (from quaternion)
+# --- args:
+# r3 = rMtx
+# r4 = rScale vec
+# r5 = rRot vec
+# r6 = rScale vec
+# r7 = rOrigin vec
+b 0x8037a43c
+
+
+
+<mtx.add.scaled> NTSC 1.02
+# Returns mtx C = fScale * mtx A + mtx B (fmadds)
+# r3 = rMtxA
+# r4 = rMtxB
+# r5 = MtxC
+# f1 = fScale
+b 0x8037a54c
+
+
+
+# --- 1x4 QUATERNION FUNCS
+
+<quat.slerp> NTSC 1.02
+# Returns quat C using fCoef to SLerp between quat A and quat B
+# --- args:
+# r3 = rQuatA
+# r4 = rQuatB
+# r5 = rQuatC
+# f1 = fCoef
+b 0x8037ef28
+
+
+
+# --- 1x3 VECTOR FUNCS
+
+<vec.add> NTSC 1.02
+# Adds VecC = VecA + VecB
+# --- args:
+# r3 = rA
+# r4 = rB
+# r5 = rC
+b 0x80342d54
+
+
+
+<vec.sub> NTSC 1.02
+# Subtracts VecC = VecA + VecB
+# --- args:
+# r3 = rA
+# r4 = rB
+# r5 = rC
+b 0x80342d78
+
+
+
+<vec.scale> NTSC 1.02
+# Multiplies VecB = VecA * fScale
+# --- args:
+# r3 = rA
+# r4 = rB
+# f1 = fScale
+b 0x80342d9c
+
+
+
+<vec.norm> NTSC 1.02
+# Normalizes VecB = VecA / mag(VecA)
+# --- args:
+# r3 = rA
+# r4 = rB
+b 0x80342db8
+
+
+
+<vec.mag> NTSC 1.02
+# Returns Magnitude of Vec
+# --- args:
+# r3 = rVec
+# f1 = fMag
+b 0x80342dfc
+
+
+
+<vec.dot> NTSC 1.02
+# Returns the dot product of VecA and VecB in f1
+# --- args:
+# r3 = rA
+# r4 = rB
+
+# --- returns:
+# f1 = fProduct
+b 0x80342e38
+
+
+
+<vec.cross> NTSC 1.02
+# Returns VecC = cross product of VecA and VecB
+# --- args:
+# r3 = rA
+# r4 = rB
+# r5 = rC
+b 0x80342e58
+
+
+
+-==-
+!
+Color Math Functions
+[Punkline]
+
+
+<color.mix> NTSC 1.02
+# invokes lerp4 to mix (interpolate) between 2 4-channel byte vectors
+# - intended for RGBA colors -- useful for anything that fits in data format though
+# --- args:
+# f1 = mix coef
+# r3 = RGBA color A
+# r4 = RGBA color B
+
+# --- returns:
+# r5 = mixed color C
+# f1...f7 = lerp4 returns
+mflr r0
+stwu sp, -0x20(sp)
+stw  r0,  0x20+4(sp)
+stw r3, 0x10(sp)
+stw r4, 0x14(sp)
+psq_l f2, 0x10(sp), 0, 2
+psq_l f4, 0x14(sp), 0, 2
+psq_l f3, 0x12(sp), 0, 2
+psq_l f5, 0x16(sp), 0, 2
+bl <lerp4>
+psq_st f6, 0x18(sp), 0, 2
+psq_st f7, 0x1A(sp), 0, 2
+lwz r5, 0x18(sp)
+lwz  r0,  0x20+4(sp)
+addi sp, sp, 0x20
+mtlr r0
+blr
+
+
+<color.maplerp> NTSC 1.02
+# Converts an integer index into a color interpolated from a table of indexed color keys
+# --- args:
+# r3 = idx
+# r4 = map table
+#      0x0 = 32-bit ordered index key
+#      0x4 = RGBA color for this key
+#      - if an index key smaller than the previous index key is found, the table terminates
+#        - in most cases, this makes 0 a valid null terminator
+# --- returns:
+# r3 = floor color
+# r4 = ceil color
+# r5 = indexed color interpolation
+# r6 = floor key
+# r7 = ceil key
+# r8 = given idx key
+# r9 = given map table
+
+# f1 ... f7 = lerp4 returns
+
+rMap=31; rColor=30; rThis=29
+rI=3; rFloor=4; rCeil=5; rReturn=5
+xNext=0x8
+mflr r0
+stwu sp, -0x40(sp)
+stw  r0,  0x40+4(sp)
+stmw r28, 0x10(sp)
+lwz rColor, 0x4(r4)
+mr. rMap, r4
+li rCeil, 0
+subi rThis, rMap, xNext
+bge- _return
+# if map isn't a pointer, don't attempt to load it and just return a null color
+
+_for_each_map_key:
+  mr rFloor, rCeil
+  lwzu rCeil, xNext(rThis)
+  cmplw rFloor, rCeil
+  bgt- _select_this
+  # if out of order key is found, assume it's a terminator and extrapolate past last key using idx
+
+    cmplw rI, rCeil
+    lwz rColor, 0x4(r)
+    bge+ _for_each_map_key
+
+_select_this:
+
+
+lmw  r28, 0x10(sp)
+lwz  r0,  0x40+4(sp)
+addi sp, sp, 0x40
+mtlr r0
+blr
+
+
+
+
+<color.mul> # Multiplies 4 channels together, assuming (0...FF) == (0.0...1.0)
+args:  rColorA = 3; rColorB = 4; rColorC = 5
+# - useful for applying 8-bit weights to 8-bit values of any kind, in tuples of 4
