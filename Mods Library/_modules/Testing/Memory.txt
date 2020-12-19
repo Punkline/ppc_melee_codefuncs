@@ -155,7 +155,7 @@ lis	r4, 0x803F
 	-==-
 
 
-Memory - Test 1
+Memory - Test 1a
 Generate pushes for OS and HSD Arenas, and make allocations for them all at CSS
 Logs messages displaying resulting RAM addresses
 [Punkline]
@@ -262,6 +262,63 @@ _return:
 lis	r4, 0x803F
 .long 0
 
+
+
+
+
+	-==-
+
+
+Memory - Test 1b
+Generate pushes for OS and HSD Arenas, and make allocations for them all at CSS
+# - does not make any extra allocations
+[Punkline]
+Revision ---- DOL Offset ---- Hex to Replace ---------- ASM Code -
+<MyArenaPush_Pointer> NTSC 1.02
+00000000 # reserved for OSArenaHi push pointer
+00000000 # define static push size here
+# - this defines the OSArena push made at boot
+
+
+# The following increase the sizes of the various HSD arenas, at boot:
+00000000 # define bytes to add to HSD[2] size
+00000000 # define bytes to add to HSD[3] size
+00000000 # define bytes to add to HSD[4] size
+# - increasing these sizes decreases the overall number of bytes in HSD[0] -- the object heap
+# - these regions are mapped to RAM
+
+00040000 # define bytes to add to HSD[5] size
+# - increasing this size will decreases the overall number of bytes in HSD[1] -- the aux heap?
+# - these regions are mapped to ARAM
+
+NTSC 1.02 --- 0x80375324 ---- 93810008 -> Branch
+
+# at boot, before memory managers are initialized...
+rData=31
+
+lis r31, <<MyArenaPush_Pointer>>@h
+ori r31, r31, <<MyArenaPush_Pointer>>@l
+# get data BA
+
+li r3, -1
+lwz r4, 0x4(rData)
+bl <HSD.region_push>
+stw r4, 0x0(rData)
+# push OSArena, and save pointer to start of push in global data table
+
+addi rData, rData, 4
+li r29, 2
+_for_each_region:
+  mr r3, r29
+  lwzu r4, 0x4(rData)
+  bl <HSD.region_push>
+  addi r29, r29, 1
+  cmpwi r29, 6
+  blt+ _for_each_region
+  # apply push to every region's static data, before they are first generated
+
+stw r28, 0x0008 (sp)
+.long 0
 
 	-==-
 
