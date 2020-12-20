@@ -1,0 +1,76 @@
+-==-
+
+Test Color lerp
+[Punkline]
+NTSC 1.02 --- 802640f8 ---- be21011c -> Branch
+# start of CSS loading function
+stmw	r17, 0x011C (sp)
+# f14...f31 also available
+
+li r3, 0x80
+bl <float.u8_8>
+lis r3, 0xFF00
+lis r4, 0x00FF
+ori r3, r3, 0xFFFF
+ori r4, r4, 0x00FF
+
+# --- args:
+# f1 = mix coef      -- 50%
+# r3 = RGBA color A  -- FF00FFFF -- magenta (floor color)
+# r4 = RGBA color B  -- 00FF00FF -- green (ceil complement)
+bl <rgba.lerp>
+# --- returns:
+# r5 = mixed color C -- 808080FF -- mid gray (mixing hue complements)
+# f1, r3, r4  are returned as given
+# p2 = (rA, gA)  # lerp4 returns, for additional low level math
+# p3 = (bA, aA)
+# p4 = (rB, gB)
+# p5 = (bB, aB)
+# p6 = (rC, gC)
+# p7 = (bC, aC)
+
+mr r3, r5
+# --- args:
+# f1 = mix coef      -- 50%
+# r3 = RGBA color A  -- 808080FF -- mid gray
+# r4 = RGBA color B  -- 00FF00FF -- green (ceil complement)
+bl <rgba.lerp>
+# r5 = mixed color C -- 40C040FF -- green tone (mixed gray)
+
+
+
+_return:
+lis	r4, 0x803F
+.long 0
+
+
+
+-==-
+
+Test square root
+[Punkline]
+NTSC 1.02 --- 802640f8 ---- be21011c -> Branch
+# start of CSS loading function
+stmw	r17, 0x011C (sp)
+# f14...f31 also available
+
+li r31, 16
+
+_for_16:
+  mr r3, r31
+  bl <float.u8>
+  bl <sqrt>
+
+  mr r3, r31
+  bl <float.u8>
+  bl <rsqrt>
+
+  subic. r31, r31, 1
+  bgt+ _for_16
+
+_return:
+lis	r4, 0x803F
+.long 0
+
+
+-==-

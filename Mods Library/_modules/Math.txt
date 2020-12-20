@@ -142,27 +142,30 @@ C0010010 EC210032 80010024 38210020 7C0803A6 4E800020
 
 
 
-<lerp2> ALL
+<lerp2> NTSC 1.02
 # quickly interpolate between 1 or 2 ranges
+# --- args:
 # f1 = coef
-# p2 = (a1, a2)
-# p3 = (b1, b2)
+# f2 = (a1, a2)
+# f3 = (b1, b2)
 # --- returns:
-# p4 = (c1, c2)
-10831028 1084102A 10810118 4E800020
+# f4 = (c1, c2)
+C0028028 EC800828 10040058 1082013A 4E800020
 
 
-<lerp4> ALL
+
+<lerp4> NTSC 1.02
 # quickly interpolate between 2 ... 4 ranges
+# --- args
 # f1 = coef
-# p2 = (a1, a2)
-# p3 = (a3, a4)
-# p4 = (b1, b2)
-# p5 = (b3, b4)
+# f2 = (a1, a2)
+# f3 = (a3, a4)
+# f4 = (b1, b2)
+# f5 = (b3, b4)
 # --- returns:
-# p6 = (c1, c2)
-# p7 = (c3, c4)
-10C41028 10E51828 10C6102A 10E7182A 10C10198 10E101D8 4E800020
+# f6 = (c1, c2)
+# f7 = (c3, c4)
+C0028028 ECE00828 10040058 10C201FA 10050058 10E301FA 4E800020
 
 
 
@@ -360,7 +363,7 @@ b 0x80379a20
 
 
 
-<mtx.rot.get> NTSC 1.02
+<mtx.rot_get> NTSC 1.02
 # Returns rotation XYZ in vec
 # --- args:
 # r3 = rMtx
@@ -369,7 +372,7 @@ b 0x80379c24
 
 
 
-<mtx.trans.get> NTSC 1.02
+<mtx.trans_get> NTSC 1.02
 # Returns translation vec
 # --- args:
 # r3 = rMtx
@@ -378,7 +381,7 @@ b 0x80379f6c
 
 
 
-<mtx.scale.get> NTSC 1.02
+<mtx.scale_get> NTSC 1.02
 # Returns scale vec
 # --- args:
 # r3 = rMtx
@@ -397,30 +400,30 @@ b 0x8037a120
 
 
 <mtx.srt> NTSC 1.02
-# Scale, Rotate, and Translate
+# Scale, Rotate, and Translate rMtx
 # --- args
 # r3 = rMtx
 # r4 = rScale vec
 # r5 = rRot vec
-# r6 = rScale vec
-# r7 = rOrigin vec
+# r6 = rTrans vec
+# r7 = rOrigin vec  - can be null
 b 0x8037a250
 
 
 
-<mtx.srt.quat> NTSC 1.02
-# Scale, Rotate and Translate (from quaternion)
+<mtx.srt_quat> NTSC 1.02
+# Scale, Rotate and Translate rMtx (from quaternion)
 # --- args:
 # r3 = rMtx
 # r4 = rScale vec
-# r5 = rRot vec
-# r6 = rScale vec
-# r7 = rOrigin vec
+# r5 = rRot quat
+# r6 = rTrans vec
+# r7 = rOrigin vec  - can be null
 b 0x8037a43c
 
 
 
-<mtx.add.scaled> NTSC 1.02
+<mtx.add_scaled> NTSC 1.02
 # Returns mtx C = fScale * mtx A + mtx B (fmadds)
 # r3 = rMtxA
 # r4 = rMtxB
@@ -514,14 +517,11 @@ b 0x80342e38
 b 0x80342e58
 
 
-
 -==-
-!
+
 Color Math Functions
 [Punkline]
-
-
-<color.mix> NTSC 1.02
+<rgba.lerp> NTSC 1.02
 # invokes lerp4 to mix (interpolate) between 2 4-channel byte vectors
 # - intended for RGBA colors -- useful for anything that fits in data format though
 # --- args:
@@ -531,83 +531,16 @@ Color Math Functions
 
 # --- returns:
 # r5 = mixed color C
-# f1...f7 = lerp4 returns
-mflr r0
-stwu sp, -0x20(sp)
-stw  r0,  0x20+4(sp)
-stw r3, 0x10(sp)
-stw r4, 0x14(sp)
-psq_l f2, 0x10(sp), 0, 2
-psq_l f4, 0x14(sp), 0, 2
-psq_l f3, 0x12(sp), 0, 2
-psq_l f5, 0x16(sp), 0, 2
+# f1, r3, r4  are returned as given
+# p2 = (rA, gA)  # lerp4 returns, for additional low level math
+# p3 = (bA, aA)
+# p4 = (rB, gB)
+# p5 = (bB, aB)
+# p6 = (rC, gC)
+# p7 = (bC, aC)
+
+7C0802A6 9421FFE0 90010024 90610010 3C003B00 90810014 9001000C
+bl <qr7.u8_8>
+E0417010 E0817014 E0617012 E0A17016
 bl <lerp4>
-psq_st f6, 0x18(sp), 0, 2
-psq_st f7, 0x1A(sp), 0, 2
-lwz r5, 0x18(sp)
-lwz  r0,  0x20+4(sp)
-addi sp, sp, 0x20
-mtlr r0
-blr
-
-
-<color.maplerp> NTSC 1.02
-# Converts an integer index into a color interpolated from a table of indexed color keys
-# --- args:
-# r3 = idx
-# r4 = map table
-#      0x0 = 32-bit ordered index key
-#      0x4 = RGBA color for this key
-#      - if an index key smaller than the previous index key is found, the table terminates
-#        - in most cases, this makes 0 a valid null terminator
-# --- returns:
-# r3 = floor color
-# r4 = ceil color
-# r5 = indexed color interpolation
-# r6 = floor key
-# r7 = ceil key
-# r8 = given idx key
-# r9 = given map table
-
-# f1 ... f7 = lerp4 returns
-
-rMap=31; rColor=30; rThis=29
-rI=3; rFloor=4; rCeil=5; rReturn=5
-xNext=0x8
-mflr r0
-stwu sp, -0x40(sp)
-stw  r0,  0x40+4(sp)
-stmw r28, 0x10(sp)
-lwz rColor, 0x4(r4)
-mr. rMap, r4
-li rCeil, 0
-subi rThis, rMap, xNext
-bge- _return
-# if map isn't a pointer, don't attempt to load it and just return a null color
-
-_for_each_map_key:
-  mr rFloor, rCeil
-  lwzu rCeil, xNext(rThis)
-  cmplw rFloor, rCeil
-  bgt- _select_this
-  # if out of order key is found, assume it's a terminator and extrapolate past last key using idx
-
-    cmplw rI, rCeil
-    lwz rColor, 0x4(r)
-    bge+ _for_each_map_key
-
-_select_this:
-
-
-lmw  r28, 0x10(sp)
-lwz  r0,  0x40+4(sp)
-addi sp, sp, 0x40
-mtlr r0
-blr
-
-
-
-
-<color.mul> # Multiplies 4 channels together, assuming (0...FF) == (0.0...1.0)
-args:  rColorA = 3; rColorB = 4; rColorC = 5
-# - useful for applying 8-bit weights to 8-bit values of any kind, in tuples of 4
+C001000C 1006002A F0017018 C001000C 1007002A F001701A 80A10018 80010024 38210020 7C0803A6 4E800020
