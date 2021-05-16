@@ -131,20 +131,20 @@ blr
 # --- returns:
 # cr1.eq = warning 'File not found'
 # cr1.lt = warning 'File still loading'
-# r3 = entrynum
-# r4 = output location
-# r5 =  0
-# r6 = file size
-# r7 = -1
-# r8 = -1
-# r9 = HSD Arena Link (if applicable)
-# r10 = path string
-# r11 = 0
+# r3  = entrynum
+# r4  = output location
+# r5  =   0   -- (read offset is always 0 for full loads)
+# r6  = read size
+# r7  =   -1  -- (sync callback is always blank on synchronous loads)
+# r8  =   -1  -- (archive object are not created for non-archive loads)
+# r9  = HSD Cache ID (if applicable)
+# r10 = path string ()
+# r11 =   0   -- (async info object is not available for synchronous reads)
 li r5, 0
 li r6, -1
 li r7, -1
 li r8, -1
-b <DVD.read_handler>
+b <DVD.__read_handler>
 
 
 
@@ -169,13 +169,13 @@ b <DVD.read_handler>
 # --- returns:
 # cr1.eq = warning 'File not found'
 # cr1.lt = warning 'File still loading'
-# r3 = entrynum
-# r4 = output location
-# r5 =  0
-# r6 = file size
-# r7 = sync callback
-# r8 = -1
-# r9 = HSD Arena Link (if applicable)
+# r3  = entrynum
+# r4  = output location
+# r5  =   0   -- (read offset is always 0 for full loads)
+# r6  = file size
+# r7  = sync callback
+# r8  =   -1  -- (archive object are not created for non-archive loads)
+# r9  = HSD Cache ID (if applicable)
 # r10 = path string
 # r11 = async file info pointer
 mr r7, r5
@@ -183,7 +183,7 @@ mr r9, r6
 li r6, -1
 li r5, 0
 li r8, -1
-b <DVD.read_handler>
+b <DVD.__read_handler>
 
 
 
@@ -200,18 +200,18 @@ b <DVD.read_handler>
 # --- returns:
 # cr1.eq = warning 'File not found'
 # cr1.lt = warning 'File still loading'
-# r3 = entrynum
-# r4 = output location
-# r5 = read offset
-# r6 = read size (-1 if unable to load file)
-# r7 = -1
-# r8 = -1
-# r9 = HSD Arena Link (if applicable)
+# r3  = entrynum
+# r4  = output location
+# r5  = read offset
+# r6  = read size (-1 if unable to load file)
+# r7  =   -1  -- (sync callback is always blank on synchronous loads)
+# r8  =   -1  -- (archive object are not created for non-archive loads)
+# r9  = HSD Cache ID (if applicable)
 # r10 = path string
 # r11 = 0
 li r7, -1
 li r8, -1
-b <DVD.read_handler>
+b <DVD.__read_handler>
 
 
 
@@ -223,8 +223,7 @@ b <DVD.read_handler>
 # r3 = file (entrynum, path string pointer, or dvd offset)
 # r4 = output location (addr=target, 0=dynamic, 3=persistent, 4=semi-persistent)
 # r5 = file read offset (0 is start)
-# r6 = bytes to load
-# - offset and bytes are unsigned, and will cap at file boundaries
+# r6 = bytes to load  -- (offset and bytes are unsigned, and will cap at file boundaries)
 # r7 = sync callback
 # r8 = sync callback arg (optional -- passed to sync callback)
 
@@ -242,13 +241,13 @@ b <DVD.read_handler>
 # r5 = read offset
 # r6 = read size (-1 if unable to load file)
 # r7 = sync callback
-# r8 = -1
-# r9 = HSD Arena Link (if applicable)
+# r8  =   -1  -- (archive object are not created for non-archive loads)
+# r9 = HSD Cache ID (if applicable)
 # r10 = path string
 # r11 = async file info pointer
 mr r9, r8
 li r8, -1
-b <DVD.read_handler>
+b <DVD.__read_handler>
 
 
 
@@ -263,24 +262,26 @@ b <DVD.read_handler>
 # --- returns:
 # cr1.eq = warning 'File not found'
 # cr1.lt = warning 'File still loading'
-# r3 = entrynum
-# r4 = output location
-# r5 =  0
-# r6 = file size
-# r7 = -1
-# r8 = archive object
-# r9 = HSD Arena Link (if applicable)
+# r3  = entrynum
+# r4  = output location
+# r5  =   0   -- (read offset is always 0 for full loads)
+# r6  = file size
+# r7  =   -1  -- (sync callback is always blank on synchronous loads)
+# r8  = archive object
+# r9  = HSD Cache ID (if applicable)
 # r10 = path string
 # r11 = 0
 mr r8, r5
 li r5, 0
 li r6, -1
 li r7, -1
-b <DVD.read_handler>
+b <DVD.__read_handler>
 
 
 
-<DVD.read_handler> NTSC 1.02
+# --- Hidden Layer ...
+
+<DVD.__read_handler> NTSC 1.02
 # Handles various types of read function inputs with verbose argument interface
 
 # --- args:
@@ -302,13 +303,13 @@ b <DVD.read_handler>
 # --- returns:
 # cr1.eq = warning 'File not found'
 # cr1.lt = warning 'File still loading'
-# r3 = entrynum
-# r4 = output location
-# r5 = read offset
-# r6 = read size (-1 if unable to load file)
-# r7 = sync callback (if applicable)
-# r8 = archive object (if applicable)
-# r9 = HSD Arena Link (if applicable)
+# r3  = entrynum
+# r4  = output location
+# r5  = read offset
+# r6  = read size (-1 if unable to load file)
+# r7  = sync callback (if applicable)
+# r8  = archive object (if applicable)
+# r9  = HSD Cache ID (if applicable)
 # r10 = path string
 # r11 = async file info pointer (if applicable)
 rOut=31;rStr=30;rNum=29;rSize=28;rBytes=27;rStart=26;rSync=25;rArch=24;rLink=23;rAsync=22;rArg=21
