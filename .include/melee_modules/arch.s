@@ -2,48 +2,42 @@
 melee.module arch
 
 .if module.included == 0
-  punkpc str, stack, items, align
+  punkpc str, stack, align
 
   items.method arch.__params
   # create a new items pseudo-object to store list of param names ...
 
-  arch.__params, /*  <-- start with a comma to append the items list ...
-  */ arch.total_size, arch.data_size, arch.rt_size, arch.st_size, arch.ref_size, arch.tag, /*
-  */ arch.pad1, arch.pad2, arch.symbols, arch.relocs, arch.refs, arch.__id, arch.__start, arch.__data_start, /*
-  */ arch.__rt_start, arch.__st_start, arch.__ref_start, arch.__sym_start
+  .irp param, arch.symbols, arch.relocs, arch.refs, arch.__id, arch.__inst; \param = 0; .endr
   # - these will store a state of the block context using various symbols ...
-
-  arch.__inst = 0
-  .macro arch.__nullify, sym; \sym = 0; .endm
-  items.irp arch.__params, arch.__nullify
-  # initialize all params with null values ...
-  # - this handler callback is re-used by the 'arch.start' macro
 
   stack arch.__mem
   # .__mem will store state memory in a stack, for pushing/popping nested archives
 
+
+
   .macro arch.start, tag=0x30303142, pad1=0, pad2=0
-    arch.__params arch.__mem.push
+    arch.__mem.push arch.symbols, arch.relocs, arch.refs, arch.__id
     # push params to memory ...
 
-    align 5; arch.__start = .
-    # set new start label
-
+    align 5;
     arch.__inst = arch.__inst + 1
     arch.__id = arch.__inst
     # new ID for this archive instance
 
-    items.irp arch.__params, arch.__nullify
+    sidx.noalt "<arch.__start>", arch.__id, "< = .>"
+    # set new start label
+
+    .irp param, arch.symbols, arch.relocs, arch.refs, arch.__id, arch.__inst; \param = 0; .endr
     # set all params back to null for current state ...
 
-    .irp hparam, total_size, data_size, rt_size, st_size, ref_size
-      sidx.noalt "<.long arch.__\hparam>", arch.__id
+    .irp param, total_size, data_size, rt_size, st_size, ref_size
+      sidx.noalt "<.long arch.__\param>", arch.__id
       # promise to resolve errata for .long once these uniquely indexed names are calculated
 
     .endr; .long \tag, \pad1, \pad2
     # finish header using args, or default args if none were provided
 
-    arch.__data_start = .
+    sidx.noalt "<arch.__data_start>", arch.__id, "< = .>"
     # set new data start label, following the header
 
     sidx.noalt3 "<stack arch.__symbols>", arch.__id, /*
@@ -124,12 +118,8 @@ melee.module arch
     .noaltmacro
     align 5
 
-    arch.total_size = .-arch.__start
+    sidx.noalt2 "<arch.__total_size>", arch.__id, "<= .-arch.__start>", arch.__id
     # resolve final piece of errata by calculating total file size ...
-
-    sidx = arch.total_size
-    sidx.set arch.__total_size, arch.__id
-    # calculate total size errata
 
     arch.__mem.popm arch.__sym_start, arch.__ref_start, arch.__st_start, arch.__rt_start, /*
     */ arch.__data_start, arch.__start, arch.__id, arch.refs, arch.relocs, arch.symbols, /*
