@@ -2,7 +2,7 @@
 melee.module arch
 
 .if module.included == 0
-  punkpc str, stack, align
+  punkpc items, stack, align
 
   items.method arch.__params
   # create a new items pseudo-object to store list of param names ...
@@ -13,9 +13,10 @@ melee.module arch
   stack arch.__mem
   # .__mem will store state memory in a stack, for pushing/popping nested archives
 
+  .macro arch.__id, macro, va:vararg; sidx.noalt "<\macro _>", arch.__id, ", ", \va
+  # wrapper for sidx (scalar indexing macro) passes state ID to methods, for use in namespaces
 
-
-  .macro arch.start, tag=0x30303142, pad1=0, pad2=0
+  .endm; .macro arch.start, va:vararg;
     arch.__mem.push arch.symbols, arch.relocs, arch.refs, arch.__id
     # push params to memory ...
 
@@ -24,116 +25,99 @@ melee.module arch
     arch.__id = arch.__inst
     # new ID for this archive instance
 
-    sidx.noalt "<arch.__start>", arch.__id, "< = .>"
-    # set new start label
+    arch.__id arch.__start, \va
+    # continue with literal ID (as decimal string)
 
-    .irp param, arch.symbols, arch.relocs, arch.refs, arch.__id, arch.__inst; \param = 0; .endr
-    # set all params back to null for current state ...
+  .endm; .macro arch.reloc, va:vararg; arch.__id arch.__reloc, \va
+  .endm; .macro arch.point, va:vararg; arch.__id arch.__point, \va
+  .endm; .macro arch.symbol, va:vararg; arch.__id arch.__symbol, \va
+  .endm; .macro arch.end, va:vararg; arch.__id arch.__end, \va
+  # - these wrappers will pass the current state ID to each method
+  #   - this makes it easier to create unique labels for resolving errata correctly
 
-    .irp param, total_size, data_size, rt_size, st_size, ref_size
-      sidx.noalt "<.long arch.__\param>", arch.__id
-      # promise to resolve errata for .long once these uniquely indexed names are calculated
+  .endm; .macro arch.__start, id, tag=0x30303142, pad1=0, pad2=0
+    arch.__start\id = .
+    # new start label ...
 
-    .endr; .long \tag, \pad1, \pad2
+    .irp x, _size\id
+      .irp param, total\x, data\x, rt\x, st\x, ref\x
+        .long arch.__\param
+        # promise to resolve errata for .long once these uniquely indexed names are calculated
+
+    .endr; .endr; .long \tag, \pad1, \pad2
     # finish header using args, or default args if none were provided
 
-    sidx.noalt "<arch.__data_start>", arch.__id, "< = .>"
+    arch.__data_start\id = .
     # set new data start label, following the header
 
-    sidx.noalt3 "<stack arch.__symbols>", arch.__id, /*
-    */ "<, arch.__relocs>", arch.__id,  /*
-    */ "<, arch.__refs>", arch.__id
-    sidx.noalt "<arch.symbols = arch.__symbols>", arch.__id, ".is_stack"
-    sidx.noalt "<arch.relocs = arch.__relocs>", arch.__id, ".is_stack"
-    sidx.noalt "<arch.refs = arch.__refs>", arch.__id, ".is_stack"
-    # stack pointers unique to this archive block have been copied to the current state params
-    # - these will now be used when referencing the symbol/reloc stacks
-    # - these are backed up with state memory when making nested archives
-
+    items.method arch.__strings\id
+    stack arch.__relocs\id, arch.__symbols\id, arch.__refs\id
     # all state parameters have been initialized...
     # - use arch.symbol, arch.reloc, and/or arch.point to construct archive contents
     # - finish archive with arch.end
 
-
-  .endm; .macro arch.symbol, name:vararg
-    sidx.noalt3 "<arch.__symbol arch.__symbols>", arch.__id, /*
-    */ "<, arch.__symbols>", arch.__id, "", arch.st_size, "<, >", \name
-    # convert indexed stack and string names into copyable literals ...
-
-  .endm; .macro arch.__symbol, stack, str, name:vararg
-    arch.st_size = arch.st_size + 1
-    str \str, \name
-    \stack\().push \str\().is_str
-    # push symbol stack
-
-    \str\().addr = .-arch.__data_start
+  .endm; .macro arch.__symbol, id, name
+    arch.__strings\id, "\name"
+    arch.__symbols\id\().push .-arch.__data_start\id
     # record current location to this str object as an extended attribute
 
-  .endm; .macro arch.ref, value;
-    arch.ref_size = arch.ref_size + 1
-    stack.push arch.refs, \value
-    # value is stacked for references
-
-  .endm; .macro arch.reloc, loc="."
-    arch.rt_size = arch.rt_size + 1
-    stack.push arch.relocs, \loc-arch.__data_start
-    .noaltmacro
+  .endm; .macro arch.__reloc, id, loc="."
+    arch.__relocs\id\().push \loc-arch.__data_start\id
     # location is stacked for relocation table entry
 
-  .endm; .macro arch.point, dest
-    arch.reloc; .long \dest-arch.__data_start
+  .endm; .macro arch.__point, id, dest
+    arch.__reloc \id
+    .long \dest-arch.__data_start\id
     # creates a pointer to destination (and marks it for relocation)
 
-  .endm; .macro arch.end
-    .noaltmacro
+  .endm; .macro arch.__end, id
     align 2
-    arch.__rt_start = .
+    arch.__rt_start\id = .
     # start of relocation table ...
 
-    sidx.noalt "<arch.__data_size>", arch.__id, "< = .-arch.__data_start>"
+    arch.__data_size\id = .-arch.__data_start\id
+    arch.__rt_size\id = arch.__relocs\id\().s
+    arch.__st_size\id = arch.__symbols\id\().s
+    arch.__ref_size\id = arch.__refs\id\().s
     # finalize size of data section, to resolve header errata
 
-    sidx.noalt "<arch.__rt_size>", arch.__id, "< = arch.rt_size>"
-    sidx.noalt "<arch.__st_size>", arch.__id, "< = arch.st_size>"
-    sidx.noalt "<arch.__ref_size>", arch.__id, "< = arch.ref_size>"
-    # finalize other header params
-
-    stack.rept arch.relocs, .long
+    stack.rept arch.__relocs\id, .long
     # emit relocation table...
+    # - refs are currently unsupported, but planned
 
-    stack.rept arch.refs, .long
-
-        arch.__st_start = .
+    arch.__st_start\id = .
     # start symbol table ...
 
-    stack.rept arch.symbols, arch.__symbols_end
-    # handle generation of symbol string position errata in symbols table
+    arch.__strings\id arch.__symbols_loop
+    # handle generation of symbols table and symbol strings ...
 
-    arch.__symbols_start = .
-    # start of symbol strings ...
-
-    stack.rept_range arch.symbols, 0, arch.st_size arch.__symbol_string
-    # handle generation of symbol string generation, to resolve errata for string start refs
-
-    .noaltmacro
     align 5
-
-    sidx.noalt2 "<arch.__total_size>", arch.__id, "<= .-arch.__start>", arch.__id
+    arch.__total_size\id = .-arch.__start\id
     # resolve final piece of errata by calculating total file size ...
 
-    arch.__mem.popm arch.__sym_start, arch.__ref_start, arch.__st_start, arch.__rt_start, /*
-    */ arch.__data_start, arch.__start, arch.__id, arch.refs, arch.relocs, arch.symbols, /*
-    */ arch.pad2, arch.pad1, arch.tag, arch.ref_size, arch.st_size, arch.rt_size, /*
-    */ arch.data_size, arch.total_size
+    arch.__mem.push arch.symbols, arch.relocs, arch.refs, arch.__id
+    # push params to memory ...
+
+    arch.__mem.popm arch.__id, arch.refs, arch.relocs, arch.symbols
     # recover state memory
 
-  .endm; .macro arch.__symbols_end, sym; .long \sym\().addr, \sym\().str
-  .endm; .macro arch.__symbol_string, sym
-    \sym\().str = .-arch.__symbols_start
-    # resolve symbol string ref errata by pointing to current location
+  .endm; .macro arch.__symbols_loop, va:vararg; arch.__id arch.___symbols_loop, \va
+  .endm; .macro arch.___symbols_loop, id, va:vararg
+    .irp str, \va
+      .ifnb \str
+        arch.__q = arch.__symbols\id\().q
+        arch.__symbols\id\().deq arch.__sym
+        sidx.noalt "<.long arch.__sym, arch.__sym\id>", arch.__q
+        # create new errata for symbol start labels ...
 
-    str.str \sym, .asciz
-    # ... and finally, emit the string given to symbol string definition
+      .endif
+    .endr; arch.__q = 0; .irp str, \va
+      .ifnb \str
+        sidx.noalt "<arch.__sym\id>", arch.__q, " = ."
+        .asciz "\str"
+        arch.__q = arch.__q + 1
+      .endif
+    .endr
   .endm
 .endif
 
