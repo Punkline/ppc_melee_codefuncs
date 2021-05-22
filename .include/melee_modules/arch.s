@@ -91,12 +91,12 @@ melee.module arch
     arch.__strings\id arch.__symbols_loop
     # handle generation of symbols table and symbol strings ...
 
-    align 5
+    .if arch.__mem.s > 5;  align 5; .endif
+    # align nested files to ceiling 0x20 bytes, for easy loading purposes
+    # - the top layer in the archive does not recieve this alignment
+
     arch.__total_size\id = .-arch.__start\id
     # resolve final piece of errata by calculating total file size ...
-
-    arch.__mem.push arch.symbols, arch.relocs, arch.refs, arch.__id
-    # push params to memory ...
 
     arch.__mem.popm arch.__id, arch.refs, arch.relocs, arch.symbols
     # recover state memory
