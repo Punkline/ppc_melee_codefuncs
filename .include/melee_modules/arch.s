@@ -1,3 +1,33 @@
+# arch : 'archive' file building macros
+
+# arch.start  arg1, arg2, arg3
+# - this starts an archive block -- using 'arch.end' to end it
+#   - multiple archives can be encapsulated by nesting these blocks
+# - optional arguments will be copied over to header tag/padding
+#   - defaults mimic stage files: "001B", 0, 0
+
+# arch.symbol  "unique_symbol_name"
+# - this starts a new region in the archive data section and registers it with a given symbol string
+#   - the current location in the assembly is used to create a label for this archive symbol
+
+# arch.reloc   optional_label
+# - registers a location in this assembly as part of the relocation table
+#   - if no label is given, then one is generated using the current location in the assembly
+
+# arch.point   target_label
+# - creates a 4-byte data section pointer to a given target label
+# - location of this pointer is automatically added to the relocation table
+
+# arch.end
+# - finish an archilve block started by 'arch.start'
+#   - this pops the top archive off the stack, if multiple archives are being nested
+# - generates all data following the data section automatically
+
+
+
+
+# --- uses the punkpc 'melee' library:
+
 .ifndef melee.library.included; .include "melee"; .endif
 melee.module arch
 
@@ -120,26 +150,4 @@ melee.module arch
     .endr
   .endm
 .endif
-
-arch.start
-0:
-.long 1, 2, 3, 4
-1:
-arch.symbol "sym1"
-
-arch.point 0b
-arch.point 2f
-.long 5, 6, 7, 8
-2:
-arch.symbol "sym2"
-
-  arch.start
-  _test:
-  .long 99, 98, 97, 96
-  arch.symbol "sym3"
-  arch.point _test
-  arch.end
-
-arch.point 1b
-
-arch.end
+/**/
