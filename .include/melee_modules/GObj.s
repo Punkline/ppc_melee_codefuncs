@@ -1,6 +1,7 @@
 .ifndef melee.library.included; .include "melee"; .endif
 melee.module GObj
 .if module.included == 0
+melee HSDObj
 
 # --- Macros:
 
