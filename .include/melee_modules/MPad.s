@@ -1,14 +1,9 @@
 .ifndef melee.library.included; .include "melee"; .endif
 melee.module MPad
 .if module.included == 0
-punkpc enum
-
 # --- MPad structure
 MPad.address = 0x804C1FAC
 # This base address can be used to reach the vanilla MPad structures, without any codes
-# If you have the module installed, you can use <PPad.pad> or <PPad.mode> to get an indexed MPad
-# - Otherwise, you can use the MPad.size symbol to create your own index
-
 
 # --- Controller Digital Data bools - these are mapped in each of the button fields
 MPad.crf.mCStick = 0x20
@@ -52,50 +47,47 @@ MPad.bDLeft     = 31;  MPad.mDLeft     = 0x000001   # Down  on Digital-Pad
 
 
 # --- Digital Data Fields - these use the above bools to capture digital state of controller
-# raw data: 0x00
-enum +4, (0)  # WORDS:
-enum MPad.xOnThis # Controller Digital Data (this frame)
-enum MPad.xOnPrev # Controller Digital Data (previous frame)
-# filtered Data: 0x08
-enum MPad.xOnPress   # Instant of Button Press
-enum MPad.xOnAuto    # Automatic Tick (using repeater) -- repeating instant when buttons are held
-enum MPad.xOnRelease # Instant of Button Release
+# raw data:
+MPad.xOnThis = 0x00 # Controller Digital Data (this frame)
+MPad.xOnPrev = 0x04 # Controller Digital Data (previous frame)
+
+# filtered Data:
+MPad.xOnPress   = 0x08 # Instant of Button Press
+MPad.xOnAuto    = 0x0C # Automatic Tick (using repeater) -- repeating instant when buttons are held
+MPad.xOnRelease = 0x10 # Instant of Button Release
 
 # The repeater countdown powers the OnAuto tick:
-enum MPad.xRepeater  # repeater wait countdown (sets to 45 on any input, when 0: resets to 8)
+MPad.xRepeater  = 0x14 # repeater wait countdown (sets to 45 on any input, when 0: resets to 8)
 # - the repeater triggers OnAuto to recoccur when reaching 0, causing a reset of the repeater count
 # - repeater continuously samples the OnThis field holding a button, but only on each tick frame
 
 
 # --- Analog Bytes - these are condensed integer-versions of the floating point data below it
-enum +1  # BYTES:  0x18
-enum MPad.xByteX    # SIGNED Analog Directional-Stick X byte
-enum MPad.xByteY    # SIGNED Analog Directional-Stick Y byte
-enum MPad.xByteCX   # SIGNED Analog C-Stick X byte
-enum MPad.xByteCY   # SIGNED Analog C-Stick Y byte
-enum MPad.xByteR    # UNSIGNED Analog R byte
-enum MPad.xByteL    # UNSIGNED Analog L byte
-enum MPad.xByteA    # - these last 2 are not used, as far as I know
-enum MPad.xByteB    # -
+MPad.xByteX  = 0x18  # SIGNED Analog Directional-Stick X byte
+MPad.xByteY  = 0x19  # SIGNED Analog Directional-Stick Y byte
+MPad.xByteCX = 0x1A  # SIGNED Analog C-Stick X byte
+MPad.xByteCY = 0x1B  # SIGNED Analog C-Stick Y byte
+MPad.xByteR  = 0x1C  # UNSIGNED Analog R byte
+MPad.xByteL  = 0x1D  # UNSIGNED Analog L byte
+MPad.xByteA  = 0x1E  # - these last 2 are not used, as far as I know
+MPad.xByteB  = 0x1F  # -
 
 
 # --- Analog Floats - these are floats polled from the analog sensors in the controller
-enum +4  # FLOATS:  0x20
-enum MPad.xAnalogX  # Analog Directional-Stick X
-enum MPad.xAnalogY  # Analog Directional-Stick Y
-enum MPad.xAnalogCX # Analog C-Stick X
-enum MPad.xAnalogCY # Analog C-Stick Y
-enum MPad.xAnalogR  # Analog R
-enum MPad.xAnalogL  # Analog L
-enum MPad.xAnalogA  # -
-enum MPad.xAnalogB  # -
+MPad.xAnalogX  = 0x20  # Analog Directional-Stick X
+MPad.xAnalogY  = 0x24  # Analog Directional-Stick Y
+MPad.xAnalogCX = 0x28  # Analog C-Stick X
+MPad.xAnalogCY = 0x2C  # Analog C-Stick Y
+MPad.xAnalogR  = 0x30  # Analog R
+MPad.xAnalogL  = 0x34  # Analog L
+MPad.xAnalogA  = 0x38  # -
+MPad.xAnalogB  = 0x3C  # -
 
 
 # --- Error Code - detects status of the controller with error codes
-enum +3, (enum + 1) # BYTE:  0x41 (byte[1] of this word is the only known variable)
-enum MPad.xErr  # signed byte -  0: NONE,  -1: NO CONTROLLER,  -2: INITIALIZING,  -3: INVALID
+MPad.xErr = 0x41  # signed byte -  0: NONE,  -1: NO CONTROLLER,  -2: INITIALIZING,  -3: INVALID
 
-MPad.size = enum.count
+MPad.size = 0x44
 # There are 4 MPads in an array. You can index them with this size value
 
 
