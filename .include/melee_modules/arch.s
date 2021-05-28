@@ -91,14 +91,19 @@ melee.module arch
     arch.__symbols\id\().push .-arch.__data_start\id
     # record current location to this str object as an extended attribute
 
-  .endm; .macro arch.__reloc, id, loc="."
-    arch.__relocs\id\().push \loc-arch.__data_start\id
-    # location is stacked for relocation table entry
+  .endm; .macro arch.__reloc, id, loc=".", va:vararg
+    .irp arg, \loc, \va;
+      .ifnb \arg; arch.__relocs\id\().push \arg -arch.__data_start\id; .endif; .endr
+      # location is stacked for relocation table entry
 
-  .endm; .macro arch.__point, id, dest
-    arch.__reloc \id
-    .long \dest-arch.__data_start\id
-    # creates a pointer to destination (and marks it for relocation)
+  .endm; .macro arch.__point, id, va:vararg
+    .irp dest, \va
+      .ifnb \dest
+        arch.__reloc \id, .
+        .long \dest-arch.__data_start\id
+        # creates a pointer to destination (and marks it for relocation)
+
+    .endif; .endr
 
   .endm; .macro arch.__end, id
     align 2
