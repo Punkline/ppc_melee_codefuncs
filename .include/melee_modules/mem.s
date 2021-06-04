@@ -16,8 +16,9 @@ enum.enum_conc "MemDef.",, (0), +4, xID,xBehavior,xPrevID,xSize, size
 # These are defined statically in the DOL
 
 MemGlob.addr= 0x80431f90
-enum.enum_conc "MemGlob.",, (0), +4, xIDMax,
+enum.enum_conc "MemGlob.",, (0), +4, xIDMax,xStart,xCB, xSRAMLo,xSRAMHi, xDRAMLo,xDRAMHi, size
 # These are updated globally, as a header to the MemDesc struct array
+# - adding '.size' to this base address will convert it into the base of 'MemDesc.'
 
 MemDesc.addr= 0x80431fb0
 enum.enum_conc "MemDesc.",, (0), +4, xHeapID,xCache,xStart,xSize,xBehavior,xInit,xDisabled, size

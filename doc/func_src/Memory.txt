@@ -267,28 +267,14 @@ punkpc ppc
 # register/bool names:
 regs (r3), rID, rMem, rHeap, rCache, rStart, rSize, rDef, rDefSize
 enum (cr1.lt), +1, bIsAvailable, bIsARAM, bIsHeap,  (lt), bInRange
+rGlob = rDef
 
 _start_func:
 cmpwi cr1, rID, 0
-load rDef, MemDef.addr
-addi r4, rDef, MemDef.xBehavior-MemDef.size
-# r4 is the offset of first region behavior variable offset
-# - it has been initialized with an offset of -1 struct size, for lwzu loop
-
-li r5, 2
-# start at 2, for procedural regions '0' and '1' generated from SRAM and DRAM excess fragments
-
-_count_defs:
-  lwzu r0, MemDef.size(r4)
-  cmpwi r0, 0
-  addi r5, r5, 1
-  bne+ _count_defs
-  # count up for each index that has a non-0 behavior ID
-  # - final def will have a null behavior ID
-
-cmpw rID, r5
-# this count can be used as a max ID, for limiting ID comparison check
-
+load rGlob, MemGlob.addr
+lwz r5, MemGlob.xIDMax(rGlob)
+addi rDef, rGlob, MemGlob.size
+cmplw rID, r5
 crandc bInRange, lt, cr1.lt
 # bInRange encodes a check to see if given r3 ID is within this counted range
 
@@ -375,12 +361,18 @@ prolog rData, rArg, rOS, rHigh, rLow, rThis, rNext
   regs (r3), rID, rMem, rHeap, rCache, rFCount, rFBig, rFTotal, rACount, rABig, rATotal
   enum (cr1.lt), +1, bIsAvailable, bIsARAM, bIsHeap, (eq), bInvalid
   enum (cr2.lt), +1, bIsValid, bMatchRAM, bMatchType, bMatch, bPass, bCheckSize
+  enum.enum_conc "OS.",, (0x28), xSRAMSize, (0xD0), xDRAMSize, (0x38), xFSTStart
 
   mfcr rCR
   mr rArg, r4
   data.get rData  # data table footer follows epilog
   lis rOS, 0x8000
-
+  lwz rHigh, OS.xDRAMSize(rOS)
+  lwz rLow, OS.xSRAMSize(rOS)
+  add rLow, rLow, rOS
+  cmplw cr2, r3, rHigh
+  cmplw rLow, r3
+  crand bIsValid, bIsValid, lt
 
   bl <mem.ID>  # returns rID, rMem, rHeap, rCache, and cr1 bools
   cmpwi rMem, 0
@@ -391,8 +383,6 @@ prolog rData, rArg, rOS, rHigh, rLow, rThis, rNext
   # initialize bools
 
 
-  lis rOS, 0x8000
-  lwz rHigh,
 
   bt+ bCheckSize, _init_size_check
 
@@ -409,7 +399,7 @@ prolog rData, rArg, rOS, rHigh, rLow, rThis, rNext
 
 
 
-mtcrf ~0x40, rCR
+mtcrf 0xBF, rCR
 epilog
 blr
 
