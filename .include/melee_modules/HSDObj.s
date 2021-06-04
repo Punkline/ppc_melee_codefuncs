@@ -2,6 +2,9 @@
 melee.module HSDObj
 .if module.included == 0
 
+# --- Class Info Tables
+HSD.Info.JObj
+
 # --- JObjs
 # Descriptor:
 JDesc.xName    = 0x00  # for grouping (?)
@@ -126,27 +129,88 @@ DObj.xFlags   = 0x14
 # --- MObjs
 
 # Descriptor:
-MDesc.xName
-MDesc.xRenderFlags
-MDesc.xTObj
-MDesc.xColor
-MDesc.xRender
-MDesc.xPixelProc
+MDesc.xName = 0x00
+MDesc.xRenderFlags = 0x04
+MDesc.xTObj = 0x08
+MDesc.xColor = 0x0C
+MDesc.xRender = 0x10
+MDesc.xPixelProc = 0x14
 
 # Instance:
-MObj.xInfo
-MObj.xRenderFlags
-MObj.xTObj
-MObj.xColor
-MObj.xRender
-MObj.xAObj
-MObj.xTEv
-MObj.xTExp
+MObj.xInfo = 0x00
+MObj.xRenderFlags = 0x04
+MObj.xTObj = 0x08
+MObj.xColor = 0x0C
+MObj.xRender = 0x10
+MObj.xAObj = 0x14
+MObj.xTEv = 0x18
+MObj.xTExp = 0x1C
 
 
 # --- PObjs
 
+# Descriptor:
+PDesc.xName = 0x00
+PDesc.xSibling = 0x04
+PDesc.xVtxAttr = 0x08
+PDesc.xFlags = 0x0C
+PDesc.xDisplayCount = 0x0E
+PDesc.xDisplayData = 0x10
+PDesc.xInfluenceMtx = 0x14
+
+# Instance:
+PObj.xInfo = 0x00
+PObj.xSibling = 0x04
+PObj.xVtxAttr = 0x08
+PObj.xFlags = 0x0C
+PObj.xDisplayCount = 0x0E
+PObj.xDisplayData = 0x10
+PObj.xInfluenceMtx = 0x14
+
+# Flags:
+PObj.mSkin = 0<<12
+PObj.mShapeAnim = 1<<12
+PObj.mEnvelope = 2<<12
+PObj.mCullFront = 1<<14; PObj.bCullFront = 17
+PObj.mCullBack = 1<<15; PObj.bCullBack = 16
+
+# VtxAttr Struct:
+VtxAttr.xGXAttr = 0x00
+VtxAttr.xGXAttrType = 0x04
+VtxAttr.xGXCompCnt = 0x08
+VtxAttr.xGXCompType = 0x0C
+VtxAttr.xFrac = 0x10
+VtxAttr.xStride = 0x12
+VtxAttr.xData = 0x14
+
+
 # --- TObjs
+
+# Descriptor:
+TObj.xName = 0x00
+TObj.xNext = 0x04
+TObj.xGXTexMapID = 0x08
+TObj.xGXTexGenSrc = 0x0C
+TObj.xRotX = 0x10
+TObj.xRotY = 0x14
+TObj.xRotZ = 0x18
+TObj.xScaleX = 0x1C
+TObj.xScaleY = 0x20
+TObj.xScaleZ = 0x24
+TObj.xTransX = 0x28
+TObj.xTransY = 0x2C
+TObj.xTransZ = 0x30
+TObj.xWrapS = 0x34
+TObj.xWrapT = 0x38
+TObj.xRepeatS = 0x3C
+TObj.xRepeatT = 0x3D
+TObj.xFlags = 0x40
+TObj.xBlending = 0x44
+TObj.xGXTexFilter = 0x48
+TObj.xImageDesc = 0x4C
+TObj.xTlutDesc = 0x00
+TObj.xTexLODDesc = 0x00
+TObj.xTObjTevDesc = 0x00
 
 # --- AObjs
 
