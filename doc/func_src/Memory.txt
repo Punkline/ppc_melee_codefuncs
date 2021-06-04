@@ -210,6 +210,55 @@ b 0x8037f1b0
 
 
 <mem.push> NTSC 1.02
+# Push the size of a given memory region by adding/subtracting bytes to the size definition
+# - This 'pushes' or 'pops' memory to a region on next scene change
+# - OSArena pushes can only be made before the first scene has begun
+
+# --- args:
+# r3 = rID  NOTE: 0 and 1 can't be pushed, because they are remainders of total SRAM and DRAM
+#           - 0 has been replaced with 'OSArenaLo'
+#           - 1 has been replaced with 'OSArenaHi'
+# r4 = bytes to add/subtract to Region
+
+# --- return:
+# r3 = address of MemDef (or OSArena Pointer variable)
+# r4 = new byte total (or new OSArena push start address)
+.include "melee"
+melee mem
+punkpc ppc
+regs (r3), rDef, rBytes, (r3), rID, rPush, (r4), rPoint
+subic. r0, rID, 2
+blt- _OS_Arena_Definition
+
+  _HSD_Memory_Definition:
+  load rDef, MemDef.addr
+  mulli r0, r0, MemDef.size
+  add rDef, rDef, r0
+  lwz r0, MemDef.xSize(rDef)
+  add rBytes, rPush, r0
+  stw rBytes, MemDef.xSize(rDef)
+  blr
+
+  _OS_Arena_Definition:
+  lwz r5, r13.xOSArenaHi(r13)
+  lwz r0, r13.xOSArenaLo(r13)
+  sub r5, r5, r0
+  sub. r0, r5, rPush
+  bgt+ 0f; li rPush, 0; 0:
+  # if push would be too large for OSArena, then abort
+
+  cmpwi rID, 0
+  addi rDef, r13, r13.xOSArenaLo
+  beq- 0f;  addi rDef, r13, r13.xOSArenaHi; 0:
+  # else, if ID is 1, then negate push size for adding to descending pointer
+
+  lwz rPoint, 0(rDef)
+  add r5, rPoint, r0
+  stw r5, 0(rDef)
+  beqlr-
+    mr rPoint, r5
+    blr # if ArenaHi, then the top of new push is at start of subtracted offset
+
 <mem.ID> NTSC 1.02
 .include "melee"
 melee mem
