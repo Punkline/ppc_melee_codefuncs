@@ -2,31 +2,79 @@
 
 DVD Functions
 DVD.file
- --> rFile
+ args: rFile  # rFile == rNum, rPath, or rOffset
+  <-- rNum, rPath, rBytes, rAlign, rOffset, rFST, rFile
+  <-- cr1.eq: bInvalid
+  # rAlign is the rBytes padded to ceiling 0x20 bytes
+
+  rFST  # File System Table element struct...
+  0x0 = Point to symbol string (path name)
+  0x4 = DVD Offset of file start
+  0x8 = Size of file on disk
+
+DVD.async_info  # returned rAsync struct is 0x24 bytes
+ args: rQuery  # rQuery accepts many input types -- see comments
+  <-- rAsync, rNum, rQuery
+  <-- cr1.lt: bNotSynced,  cr1.gt: bMatch,  cr1.eq: bSynced
+
+  rAsync  # Async DVD read queue info struct...
+  0x00 = to next info struct in async queue
+  0x04 = unknown index
+  0x08 = File Entry Number -- can be input into <DVD.file>
+  0x0C = File Read Start -- offset of file to begin DVD read at
+  0x10 = to output destination
+  0x14 = File Read Size
+  0x18 = flags:
+         0038 : 3-bit, unknown ID:
+         0020 :  4 unknown (hardcoded by HSD wrapper)
+         0007 : 3-bit, 'Destination' ID
+         0001 :  1 Virtual RAM (24MB)
+         0003 :  3 Auxiliary RAM (16MB)
+  0x1A = Error code (?) -- gets passed to sync callback as arg r6
+  0x1C = to sync callback (or null, if not used)
+  0x20 = sync callback argument -- passed as arg r4
+
 
 DVD.read
- --> rFile, rOut
-DVD.read_async
- --> rFile, rOut, rCallback, rCallbackArg
-DVD.read_part
- --> rFile, rOut, rStart, rBytes
-DVD.read_part_async
- --> rFile, rOut, rStart, rBytes, rCallback, rCallbackArg
-DVD.read_archive
- --> rFile, rOut, rArchive
+ args: rFile, rOut  # rOut = address to output or an alloc region ID
+  <-- rNum, rOut, (null), rBytes, (null), (null), rMeta, rPath, (null)
+  <-- cr1.eq: bInvalid
 
-DVD.async_info
- --> rQuery
-DVD.sync
+DVD.read_async  # rCallback = function executed when load finishes
+ args: rFile, rOut, rSyncCB, rSyncArg
+  <-- rNum, rOut, (null), rBytes, rSyncCB, (null), rMeta, rPath, rAsync
+  <-- cr1.eq: bInvalid,  cr1.lt: bNotSynced
+
+DVD.read_part  # rBytes = size of partial load
+ args: rFile, rOut, rStart, rBytes
+  <-- rNum, rOut, rStart, rBytes, (null), (null), rMeta, rPath, (null)
+  <-- cr1.eq: bInvalid
+
+DVD.read_part_async  # rAsync = read-only async load info struct
+ args: rFile, rOut, rStart, rBytes, rSyncCB, rSyncArg
+  <-- rNum, rOut, rStart, rBytes, rSyncCB (null), rMeta, rPath, rAsync
+  <-- cr1.eq: bInvalid,  cr1.lt: bNotSynced
+
+DVD.read_archive  # rArch = alloc (or region ID) for output archive obj
+ args: rFile, rOut, rArch
+  <-- rNum, rOut, (null), rBytes, (null), rArch, rMeta, rPath, (null)
+  <-- cr1.eq: bInvalid
+
+DVD.sync  # CPU waits for DVD to catch up entirely before continuing
  --
-DVD.sync_to
- --> rQuery
 
-archive.init
- --> rArchive, rFileStart, rFileSize
+DVD.sync_to  # CPU waits for a specific DVD read before coninuing
+ args: rQuery
+  --
+
+archive.init  # relocate and initialize an archive file (*.dat)
+ args: rArch, rFileStart, rSize
+  --
+
 archive.symbol
- --> rArchive, rSymbol
-[HSD, Punkline]
+ args: rArchive, rSymbol
+  <-- rAddr
+[Punkline]
 
 <DVD.file> NTSC 1.02
 # Returns a file entrynum, a path string, a file size, and a dvd offset
@@ -50,7 +98,8 @@ archive.symbol
 # r8 = FST entry
 # r9 = (given path input argument)
 
-.include "punkpc.s"
+.include "melee"
+melee DVD
 punkpc ppc
 # load all powerpc utilities from punkpc...
 
@@ -69,15 +118,12 @@ mr. rInput, rArg
 
 
 _try_input:
-enum (-0x4424), +4, xFSTEntries, xFSTPaths, xFSTCount
-# Global SData offsets are used to access the File System Table, loaded from disk on game init
-
 regs (r4), rLo, rHi, rStr, rX
 # working register aliases ...
 
-lwz rStr, xFSTPaths(r13)     # Path string pointer array ...
-lwz rFST, xFSTEntries(r13)   # FST struct array base ...
-lwz rX, xFSTCount(r13)       # Number of entries in FST array ...
+lwz rStr, r13.xFSTPaths(r13)     # Path string pointer array ...
+lwz rFST, r13.xFSTEntries(r13)   # FST struct array base ...
+lwz rX, r13.xFSTCount(r13)       # Number of entries in FST array ...
 mtctr rX
 # prepare loop count using ctr loaded from rX value...
 
@@ -117,9 +163,6 @@ bge+ _path_is_positive
 _path_is_positive:
 # When we have a positive number, we may be able to generate an output by navigate the FST
 
-enum (0), +4, xStr, xDVD, xSize
-# FST struct offsets
-
 cmpw rInput, rX
 ble+ _have_entrynum
 # If input is <= the total FST range, then it's considered an entrynum ID
@@ -129,13 +172,13 @@ ble+ _have_entrynum
   # Overflowing the entrynum index will cause the parser to check file offsets, instead ...
 
   li rNum, -1
-  addi rX, rFST, xDVD - 0xC
+  addi rX, rFST, FST.xOffset - 0xC
   # prepare for iterative lwzu loop to search for file associated with this file offset...
 
   _for_each_DVD_offset:
     lwzu rLo, 0xC(rX)  # this iterating offset is aligned to 'xDVD'
     cmpw rInput, rLo
-    lwz r0, xSize - xDVD(rX)
+    lwz r0, FST.xSize - FST.xOffset(rX)
     add rHi, rLo, r0
     cmpw cr1, rInput, rHi
     crnor eq, lt, cr1.gt
@@ -149,9 +192,9 @@ _have_entrynum:
 crclr cr1.eq
 mulli r0, rNum, 0xC
 add rFST, rFST, r0
-lwz rSize, xSize(rFST)
-lwz rPath, xStr(rFST)
-lwz rDVD, xDVD(rFST)
+lwz rSize, FST.xSize(rFST)
+lwz rPath, FST.xStr(rFST)
+lwz rDVD, FST.xOffset(rFST)
 addi r0, rSize, 0x1F
 add rPath, rPath, rStr
 rlwinm rAlign, r0, 0, ~0x1F
@@ -183,7 +226,7 @@ blr
 # r6  = read size
 # r7  =   -1  -- (sync callback is always blank on synchronous loads)
 # r8  =   -1  -- (archive object are not created for non-archive loads)
-# r9  = HSD Cache Link (if applicable)
+# r9  = Allocation Metadata
 # r10 = path string ()
 # r11 =   0   -- (async info object is not available for synchronous reads)
 li r5, 0
@@ -221,7 +264,7 @@ b <DVD.__read_handler>
 # r6  = file size
 # r7  = sync callback
 # r8  =   -1  -- (archive object are not created for non-archive loads)
-# r9  = HSD Cache Link (if applicable)
+# r9  = Allocation Metadata
 # r10 = path string
 # r11 = async file info pointer
 mr r7, r5
@@ -252,7 +295,7 @@ b <DVD.__read_handler>
 # r6  = read size (-1 if unable to load file)
 # r7  =   -1  -- (sync callback is always blank on synchronous loads)
 # r8  =   -1  -- (archive object are not created for non-archive loads)
-# r9  = HSD Cache Link (if applicable)
+# r9  = Allocation Metadata
 # r10 = path string
 # r11 = 0
 li r7, -1
@@ -288,7 +331,7 @@ b <DVD.__read_handler>
 # r6 = read size (-1 if unable to load file)
 # r7 = sync callback
 # r8  =   -1  -- (archive object are not created for non-archive loads)
-# r9  = HSD Cache Link (if applicable)
+# r9  = Allocation Metadata
 # r10 = path string
 # r11 = async file info pointer
 mr r9, r8
@@ -314,7 +357,7 @@ b <DVD.__read_handler>
 # r6  = file size
 # r7  =   -1  -- (sync callback is always blank on synchronous loads)
 # r8  = archive object
-# r9  = HSD Cache Link (if applicable)
+# r9  = Allocation Metadata
 # r10 = path string
 # r11 = 0
 mr r8, r5
@@ -368,10 +411,11 @@ b <DVD.__read_handler>
 #    0x1C : POINT : to sync callback (or null, if not used)
 #    0x20 : WORD  : sync callback argument (or null, if not used) -- passed as arg r4
 
-.include "punkpc.s"
+.include "melee"
+melee DVD
 punkpc ppc
 
-prolog rQuery, rInfo, cr
+prolog rQuery, rAsync, cr
 # start of function...
 
 regs (r3), rArg
@@ -380,13 +424,12 @@ regs (r3), rRet, rNum, rGiven
 
 enum (eq), +8, bInfo,  +4, bDest, bCallback  # working bools
 enum (cr1.lt), bNotSynced, bMatch, bSynced   # returned bools
-xInfo = -0x3ea8  # Global SData pointer, for reaching queue of xInfo structs
 
 cmpwi rArg, -1
 bne+ _begin
 # we check for '-1' as a special input case
 
-  lwz rRet, xInfo(r13)
+  lwz rRet, r13.xDVDAsyncQueue(r13)
   cmpwi cr1, rRet, 0  # this will record true or false in bSynced ...
   b _return
   # '-1' will return immediately with the front of the queue, and a check to see if it's null
@@ -394,14 +437,10 @@ bne+ _begin
 
 _begin:
 mr. rQuery, rArg
-lwz rInfo, xInfo(r13)
+lwz rAsync, r13.xDVDAsyncQueue(r13)
 # otherwise, check to see if queue is empty
 
-
-enum (0), +4, xNext, xID, xNum, xRead, xDest, xSize,  +2, xFlags, xErr,  +4, xCB, xArg
-# Async Info structure offset enumerations
-
-cmpwi cr1, rInfo, 0
+cmpwi cr1, rAsync, 0
 crclr bMatch
 bge- cr1, _return
 # start off with a cleared bMatch bool, and check for an initial null
@@ -415,9 +454,9 @@ bge- cr1, _return
     b _check_if_null  # if Query is a null entrynum (-1), then return without a match
 
       _check_pointers:
-      cmpw rInfo, rQuery
-      lwz r0, xDest(rInfo)
-      lwz r3, xCB(rInfo)
+      cmpw rAsync, rQuery
+      lwz r0, DVD.async.xDest(rAsync)
+      lwz r3, DVD.async.xSyncCB(rAsync)
       cmpw cr2, r0, rQuery
       cmpw cr3, r3, rQuery
       # cr0, cr2, and cr3 have temporary comparisons for the query to possibly match
@@ -425,13 +464,13 @@ bge- cr1, _return
       cror bMatch, bInfo, bDest
       cror bMatch, bMatch, bCallback
       bt- bMatch, _return
-      # If rInfo, Load Destination, or Callback match rQuery, then element is returned ...
+      # If rAsync, Load Destination, or Callback match rQuery, then element is returned ...
 
-        lwz rInfo, xNext(rInfo)
+        lwz rAsync, DVD.async.xNext(rAsync)
         # ... else, load the next struct and try that one
 
     _check_if_null:
-    cmpwi cr1, rInfo, 0
+    cmpwi cr1, rAsync, 0
     blt+ cr1, _check_pointers
     # continue to check this element only if the link pointer isn't null
 
@@ -443,27 +482,27 @@ bge- cr1, _return
       # - this should return an entrynum or an error code in r3, so we send thread back to _begin:
 
     _check_next_num:
-    lwz rInfo, xNext(rInfo)
-    cmpwi cr1, rInfo, 0
+    lwz rAsync, DVD.async.xNext(rAsync)
+    cmpwi cr1, rAsync, 0
     bge- cr1, _return  # return if out of entrynums to check for
 
   _check_entrynum_start:
-  lwz r0, xNum(rInfo)
+  lwz r0, DVD.async.xNum(rAsync)
   cmpw r0, rQuery
   crmove bMatch, eq
   bt- bMatch, _return
-    lwz rInfo, xNext(rInfo)
-    cmpwi cr1, rInfo, 0
+    lwz rAsync, DVD.async.xNext(rAsync)
+    cmpwi cr1, rAsync, 0
     blt+ cr1, _check_entrynum_start
     # check each element for a matching entrynum
 
 _return:
-mr. rRet, rInfo
+mr. rRet, rAsync
 li rNum, -1
 mr rGiven, rQuery
 # load return values ...
 
-beq- 0f; lwz r4, xNum(rInfo); 0:
+beq- 0f; lwz r4, DVD.async.xNum(rAsync); 0:
 # if valid, then load rNum from struct instead of default error -1 ...
 
 epilog
@@ -585,13 +624,14 @@ b 0x80380358
 # r6  = read size (-1 if unable to load file)
 # r7  = sync callback (if applicable)
 # r8  = archive object (if applicable)
-# r9  = HSD Cache Link (if applicable)
+# r9  = Allocation Metadata
 # r10 = path string
 # r11 = async file info pointer (if applicable)
 
-.include "punkpc.s"
+.include "melee"
 punkpc ppc
-prolog rAsync, rStr, rCache, rArch, rSync, rBytes, rStart, rOut, rNum, rSize, rArg, rArgs
+melee DVD, mem
+prolog rAsync, rStr, rMeta, rArch, rSyncCB, rBytes, rStart, rOut, rNum, rSize, rSyncArg, rArgs
 # saved registers for r31 -= 1 ...
 # - the first 8 registers are ordered to resemble part of the return interface
 
@@ -615,9 +655,9 @@ stw r3, 0(rArgs)
 
 lmw rNum, 0(rArgs)
 
-li rCache, 0
+li rMeta, 0
 li rStr, 0
-# rArg isn't part of the return interface, so it doesn't quite fit in
+# rSyncArg isn't part of the return interface, so it doesn't quite fit in
 # The other registers default to 0
 
 bt- bInvalid, _return
@@ -658,15 +698,14 @@ bt- bInvalid, _return
 
       cmpwi rArch, 2
       mr rOut, r3
+      subi rMeta, r3, 0x20
       blt+ _load_file
-        mr rCache, r3
+        mr rMeta, r3
         # region IDs 2 ... 5 have special 'cache' metadata structures
         # - these can be linked to archive pre-loader objects to manage async loads with events
 
-        enum (0), +4, cache.xNext, cache.xLo, cache.xHi
-        # - these offsets can be used to navigate the cache links ...
 
-        lwz rOut, cache.xLo(rCache)
+        lwz rOut, CacheMeta.xAlloc(rMeta)
         # This can be used to correct the address pointer in rOut when returning Cache regions
 
     _load_file:
@@ -677,7 +716,7 @@ bt- bInvalid, _return
     # r7 is a bit code representing the type of RAM the DVD hardware should load data into
     # - we check the sign bit of r5 (load destination, output) to see what kind of address is used
 
-    mr r9, rSync
+    mr r9, rSyncCB
     # r9 is a callback to be executed once the DVD hardware has synced with SRAM, for the CPU to use
     # - if this is null, no callback is made
     # - 'sync' loads normally use this to set a flag that breaks a wait loop
@@ -692,7 +731,7 @@ bt- bInvalid, _return
     mr r4, rStart # r4 = starting file offset to load from
     mr r6, rSize  # r6 = number of bytes to load
     li r8, 1      # r8 = unknown index, using 1 is normal though
-    mr r10, rArg  # r10 is given to the sync callback, if/when executed
+    mr r10, rSyncArg  # r10 is given to the sync callback, if/when executed
     # - the argument may be something useful, like a data pointer
 
     bl 0x8038f6d4
@@ -720,7 +759,7 @@ bt- bInvalid, _return
       # rArch now holds an allocation, if successful
       # - before overwrite, the ID is checked again to see if we need to extract dest from metadata
 
-      blt+ 0f; lwz rArch, cache.xLo(rArch); 0:
+      blt+ 0f; lwz rArch, CacheMeta.xAlloc(r3); 0:
       # rArch now holds the address of its allocation for the archive object, on generation
 
 
@@ -728,9 +767,9 @@ bt- bInvalid, _return
     # at this point, the DVD hardware is off doing its own thing asynchronous to the CPU...
     # - we're now deciding whether or not we should wait for it to finish before continuing...
 
-    cmpwi rSync, -1
+    cmpwi rSyncCB, -1
     bne+ _get_async_info
-    # If the provided rSync callback is special code '-1', then we will wait for DVD...
+    # If the provided rSyncCB callback is special code '-1', then we will wait for DVD...
 
       bl <DVD.sync>
       # Calling this will wait for the DVD to finish its last queued element (our read)
