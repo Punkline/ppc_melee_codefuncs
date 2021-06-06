@@ -29,7 +29,7 @@ enum.enum_conc "HeapDesc.",, (0), +4, xTotal,xFree,xAlloc, size
 # OSHeaps provide dynamically free-able memory, and is used by HSD for scene-persistent allocs
 
 enum.enum_conc "HeapMeta.",, (0), +4, xPrev,xNext,xSize, size
-enum.enum_conc "CacheDesc.",, (0), +4, xNext,xLow,xHigh,xAlloc, size
+enum.enum_conc "CacheDesc.",, (0), +4, xNext,xLow,xHigh,xMeta, size
 enum.enum_conc "CacheMeta.",, (0), +4, xNext,xAlloc,xSize, size
 # (these structs can be navigated to from the above global structs)
 
@@ -51,9 +51,9 @@ enum.enum_conc "mem.ID.",, (cr1.lt), +1, bIsAvailable, bIsARAM, bIsHeap
 
 # --- RETURNS for <mem.info>
 # args: r3=rAddress
-enum.enum_conc "mem.info.",, (r3), +1, rID, rMem, rHeap, rCache, rAlloc, rSize, rOffset, rMeta, rStatic, rString
+enum.enum_conc "mem.info.",, (r3), +1, rID, rMem, rHeap, rCache, rBase, rSize, rOffset, rMeta, rStatic, rString
 enum.enum_conc "mem.info.",, (cr1.lt), +1, bInRegion, bIsAllocated, bIsHeap
-# - rOffset is derived from rAlloc, but only if r3=rAddress input syntax is used
+# - rOffset is derived from rBase, but only if r3=rAddress input syntax is used
 
 # args: r3=rID, rSize   (alternative syntax)
 enum.enum_conc "mem.info.",, (cr1.lt), +1, bIsAvailable, bIsARAM, bIsHeap

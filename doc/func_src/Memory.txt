@@ -352,62 +352,21 @@ lwz rSize, MemDesc.xSize(rMem)
 blr # return region boundary summary from memory descriptor
 
 
+<mem.static_boundaries> NTSC 1.02
+count = 12
+_head:  .byte _bounds-_head, _strings-_head, count
+# 0x0 = offset of boundaries array
+# 0x1 = offset of strings array
+# 0x2 = number of boundary definitions
+# 0x3 = (start of string offset byte array)
 
-<mem.info> NTSC 1.02
-.include "melee"
-melee mem
-punkpc ppc
-prolog rData, rArg, rOS, rHigh, rLow, rThis, rNext
-  regs (r3), rID, rMem, rHeap, rCache, rFCount, rFBig, rFTotal, rACount, rABig, rATotal
-  enum (cr1.lt), +1, bIsAvailable, bIsARAM, bIsHeap, (eq), bInvalid
-  enum (cr2.lt), +1, bIsValid, bMatchRAM, bMatchType, bMatch, bPass, bCheckSize
-  enum.enum_conc "OS.",, (0x28), xSRAMSize, (0xD0), xDRAMSize, (0x38), xFSTStart
+.altmacro; i = -1
+.rept count;  i = i+1
+  .irp n, %i; .byte \n\()f-_head; .endr
+.endr; .align 2 # emit pointer bytes, to start of each null-terminated string
+# - these are all offsets from base of this data table, at '_head'
 
-  mfcr rCR
-  mr rArg, r4
-  data.get rData  # data table footer follows epilog
-  lis rOS, 0x8000
-  lwz rHigh, OS.xDRAMSize(rOS)
-  lwz rLow, OS.xSRAMSize(rOS)
-  add rLow, rLow, rOS
-  cmplw cr2, r3, rHigh
-  cmplw rLow, r3
-  crand bIsValid, bIsValid, lt
-
-  bl <mem.ID>  # returns rID, rMem, rHeap, rCache, and cr1 bools
-  cmpwi rMem, 0
-  mcrf 2, 1
-  crmove bCheckSize, eq
-  crclr bPass
-  crclr bMatch
-  # initialize bools
-
-
-
-  bt+ bCheckSize, _init_size_check
-
-    _init_address_check:
-    li rID, -1
-    b _init_loop
-
-    _init_size_check:
-
-
-
-
-
-
-
-
-mtcrf 0xBF, rCR
-epilog
-blr
-
-data.foot
-# add to base of this table to get offset to string symbol:
-0: .irp n, 0,1,2,3,4,5,6,7,8,9,10,11; .byte \n\()f-0b; .endr .align 2
-
-# add 0x12 to base and shift rStatic << 2 to get boundry value:
+_bounds:
 .long 0x80000000  # 0 - "HEAD"    -- these are predictable static boundaries
 .long 0x80005940  # 1 - "TEXT"
 .long 0x803b7240  # 2 - "DATA"
@@ -416,13 +375,9 @@ data.foot
 .long 0x804D79e0  # 5 - "TOC"
 .long 0x804DEC00  # 6 - "RTS"
 .long 0x804EEC00  # 7 - "ArenaLo"
-
-_data_write:
 .long 0, 0, 0, 0  # 8, 9, 10, 11  -- these last ones are procedurally written, at runtime
 
-data.xUpdateBounds = _nulls-0b
-# errata offset can be used by function to ensure proc update
-
+_strings:
 # strings are kept at end of table:
 0:  .asciz "HEAD"
 1:  .asciz "TEXT"
@@ -437,3 +392,294 @@ data.xUpdateBounds = _nulls-0b
 10: .asciz "ArenaHi"
 11: .asciz "FST"
 .align 2
+
+
+<mem.info> NTSC 1.02
+.include "melee"
+melee mem
+punkpc ppc
+prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rBase, rSize, rOffset, rMeta, rStatic, rString, rReturns, rCR, +0x20, xReturns
+  # saved registers, and temp workspace in sp
+
+  regs (r3), rID, rMem, rHeap, rCache, rFCount, rFBig, rFTotal, rACount, rABig, rATotal
+  # returned registers (for failed parse)
+
+  enum (cr1.lt), +1, bIsAvailable, bIsARAM, bIsHeap, (eq), bInvalid
+  # bools used in parse/return
+
+  enum (cr2.lt), +1, bIsValid, bMatchRAM, bMatchType, bMatch, bPass, bCheckSize
+  # bools used in parse
+
+  enum.enum_conc "OS.",, (0x28), xSRAMSize, (0xD0), xDRAMSize, (0x38), xFSTStart
+  # - various OS params, in static OS head (low 256 bytes of SRAM)
+
+  enum.enum_conc "datahead.",, (0), +1, xBoundaries, xStrings, xCount, size
+  # - custom data in rData has a header with 3 bytes, followed by an array of byte pointers
+
+  enum.enum_conc "data.boundary.",, (8<<2), +4, xHWHeap, xHSD, xArenaHi, xFST
+  # - 4 of the boundaries need to be manually updated before they can be used, so we name them
+
+  rGlob = rMem
+  bInRegion = bIsAvailable
+  bIsAllocated = bIsARAM
+  # aliases
+
+  mfcr rCR
+  mr rArg, r3
+  mr rArg2, r4
+  lis rOS, 0x8000
+  lwz rHigh, OS.xDRAMSize(rOS)
+  lwz rLow, OS.xSRAMSize(rOS)
+  addi rReturns, sp, sp.xReturns
+  add rLow, rLow, rOS
+  cmplw cr2, rArg, rHigh
+  cmplw rLow, rArg
+  crand bIsValid, bIsValid, lt
+  # validity requires that r3 be within ID, SRAM or DRAM integer range
+
+  lis r31, <<mem.static_boundaries>>@h
+  ori r31, r31, <<mem.static_boundaries>>@l
+  # rData is now pointing to static boundaries data table
+  # - since the last 4 boundaries are decided by moddable circumstances, they must be updated
+
+
+  lbz r0, datahead.xBoundaries(rData)
+  add rThis, rData, r0
+  # rThis points to base of word-aligned boundary definitions
+
+  load rGlob, MemGlob.addr
+  lwz rHeap, r13.xOSHeapDescs(r13)
+  lwz rHigh, MemGlob.xSRAMLo(rGlob)
+  lwz r0, HeapDesc.xSize(rHeap)
+  sub rLow, rHigh, r0
+  stw rLow, data.boundary.xHWHeap(rThis)
+  stw rHigh, data.boundary.xHSD(rThis)
+  lwz rLow, MemGlob.xSRAMHi(rGlob)
+  lwz rHigh, OS.xFSTStart(rOS)
+  stw rLow, data.boundary.xArenaHi(rThis)
+  stw rHigh, data.boundary.xFST(rThis)
+  # IDs 8...11 have been updated
+
+  bl <mem.ID>  # returns rID, rMem, rHeap, rCache, and cr1 bools
+  cmpwi rMem, 0
+  cror cr1.lt, lt, bIsValid
+  mcrf 2, 1
+  # combine check for valid ID with previous check for Addr ranges...
+  # - we move the cr2 bool over to cr1 before copying it back over after combination with whole CRF
+
+  crmove bCheckSize, eq
+  crset bPass
+  crclr bMatch
+  # initialize other bools
+
+  _init_nulls:
+  load rFCount, 0, 0, 0, 0, 0, 0
+  stswi rFCount, rReturns, 6<<2
+  lswi rBase, rReturns, 6<<2
+  # initialize the remaining nulls for return, or start of loop
+  # - if bIsValid == False, then r4, r5, r6 are null from <mem.ID> return
+
+  bf- bIsValid, _return
+  # At this point, bIsValid represents a Validated ID, SRAM Addr, or DRAM Addr...
+  # - if none of those are detected, then just return the above nulls as an error
+
+  bt+ bCheckSize, _loop
+  # ... else, branch into corresponding initialization using recognized input type
+
+    li rID, -1
+    # if checking for addresses, then we don't know what region it is in
+    # - we check each region of matching RAM type detected in bMatchRAM
+
+    cmpwi rArg, 0
+    crnot bMatchRAM, lt
+    # Set MatchRAM bool according to sign in rArg
+    # - True means it is ARAM (DRAM)
+
+
+
+_loop:
+  crnot bPass, bPass
+  # 2 passes, indexed by bool 'bPass'
+
+  # setup logic:
+  bt+ bCheckSize, _check_size_start
+    bt- bPass, 1f
+
+      _next_ID:
+      addi rID, rID, 1
+      bl <mem.ID>
+      cmpwi rMem, 0
+      crmove bIsValid, lt
+      bf- bIsValid, _init_nulls
+      # if all valid IDs are parsed without a match, then return nulls
+
+      crand bIsARAM, bIsARAM, bMatchRAM
+      crand bIsAvailable, bIsAvailable, bIsARAM
+      bf- bIsAvailable, _next_ID
+      # if region doesn't match RAM type of query, then skip it
+
+    1:
+    crclr bIsAllocated
+    crclr bInRegion
+    bt+ bIsHeap, _heap_addr
+
+
+
+      _cache_addr:
+      lwz rLow, CacheDesc.xLow(rCache)
+      cmpw rArg, rLow
+      lwz rHigh, CacheDesc.xHigh(rCache)
+      crnot bMatch, lt
+      cmpw rArg, rHigh
+      crand bMatch, bMatch, lt
+      lwz rMeta, CacheDesc.xMeta(rCache)
+      crset bInRegion
+      li rBase, 0
+      bf+ bMatch, _next_ID
+
+        # for cache addr subloop, we just check each alloc
+        # - if alloc isn't found, but still in range -- then arg is part of free space
+        2:  cmpwi rMeta, 0
+        bge- _cache_addr_is_free
+        lwz rBase, CacheMeta.xAlloc(rMeta)
+        cmpw rArg, rBase
+        blt+ 3f
+          lwz rSize, CacheMeta.xSize(rMeta)
+          add rHigh, rSize, rBase
+          cmpw rArg, rHigh
+          blt- _cache_addr_is_alloc
+        3: lwz rMeta, CacheMeta.xNext(rMeta)
+        b 2b
+
+        _cache_addr_is_alloc:
+        crset bIsAllocated
+
+        _cache_addr_is_free:
+        _set_offset:
+        sub rOffset, rArg, rBase
+        b _return
+
+
+
+    _heap_addr:
+    li rBase, 0
+    lwz rMeta, HeapDesc.xAlloc(rHeap)
+    bf+ bPass, 1f
+      lwz rMeta, HeapDesc.xFree(rHeap)
+    1: # for heap addr subloop, we need to check both allocated and free fragments one by one
+       # - this is done in 2 passes, signified by the bPass bool
+
+      cmpwi rMeta, 0
+      bge- _loop
+      cmpw rArg, rMeta
+      lwz rSize, HeapMeta.xSize(rMeta)
+      crnot bMatch, lt
+      add rHigh, rMeta, rSize
+      cmpw rArg, rHigh
+      addi rBase, rMeta, 0x20
+      crand bMatch, bMatch, lt
+      # we include 0x20 byte meta header in alloc space for complete contiguity
+
+      bt- bMatch, _heap_addr_match
+        lwz rMeta, HeapMeta.xNext(rMeta)
+        b 1b
+
+    _heap_addr_match:
+    crset bInRegion
+    crnot bIsAllocated, bPass
+    b _set_offset
+    # Heap address match measures each individual fragment
+    # - this includes hacked fragments in regions normally OOB to the heap
+
+
+
+  _check_size_start:
+  # if checking for size, then rArg2 contains a size query, and rID is the selected region
+
+  bt+ bIsHeap, _heap_size
+
+    _cache_size:
+    lwz rMeta, CacheDesc.xMeta(rCache)
+    lwz rFBig, MemDesc.xSize(rMem)
+    lwz rNext, CacheMeta.xNext(rMeta)
+    0: cmpwi rNext, 0
+      bge- 0f
+        addi rACount, rACount, 1
+        lwz rThis, CacheMeta.xSize(rMeta)
+        add rATotal, rATotal, rThis
+        cmpwi rThis, rABig
+        ble+ 1f; mr rABig, rThis; 1:
+        mr rMeta, rNext
+        lwz rNext, CacheMeta.xNext(rMeta)
+        b 0b  # count bytes in each push of the cache stack
+
+    0: sub rFTotal, rFBig, rATotal
+    # calculate total free bytes by subtracting counted bytes from defined total
+
+    cmpwi rArg2, rFTotal
+    mr rFBig, rFTotal
+    li rFCount, 1
+    crmove bIsAvailable, lt
+    crmove bMatch, bIsAvailable
+    # finally, see if query size fits within calculated free bytes
+
+    bf- bIsAvailable, _check_for_static_boundary
+    # if not, then return the current state of the parser
+    # - this returns the rF* and rA* for information about the memory region
+
+    lwz rHigh, CacheDesc.xHigh(rCache)
+    mr rSize, rFTotal
+    sub rBase, rHigh, rSize
+    b _return
+    # else, return match values, with bIsAvailable = True
+
+  _heap_size:
+
+
+
+
+
+  _return:
+  crand bIsValid, bIsValid, bMatch
+  bf- bIsValid, _exit
+  # if valid input was not given, then only a summary of the parse is returned (from working regs)
+
+  stswi rBase, rReturns, 6<<2
+  lswi mem.info.rBase, rReturns, 6<<2
+  # else, copy returns from saved registers over to return registers
+  # - this only applies to successful queries
+
+
+  # Additionally, we want to return a static boundary if successfuly query is in SRAM:
+
+  _check_for_static_boundary:
+  bt- bIsARAM, _exit
+  # the audio samples in ARAM are not well enough documented to label them (at this time)
+  # - if info is for ARAM address (DRAM), then no static boundary ID is given
+
+  rX = rArg2
+  # temp aliases, for registers no longer being used
+
+  lbz rStatic, datahead.xCount(rData)
+  lbz rThis, datahead.xBoundaries(rData)
+  add rThis, rThis, rData
+  # prepare for lwzx index parse...
+
+  _find_static_boundary:
+    subic. rStatic, rStatic, 1
+    beq- 0f
+    slwi rX, rStatic, 2
+    lwzx rLow, rThis, rX
+    cmpw rBase, rLow
+    blt+ _find_static_boundary
+  0:
+  lbz rThis, datahead.xStrings(rData)
+  add rThis, rThis, rData
+  lbzx rX, rThis, rStatic
+  add rString, rData, rX
+  # return static boundary region ID and associated string label
+
+_exit:
+mtcrf 0xBF, rCR
+epilog
+blr
