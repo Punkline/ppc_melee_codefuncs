@@ -1,0 +1,728 @@
+-==-
+
+Memory Management Functions
+
+mem.alloc  # Allocate dynamically managed memory
+mem.allocz # - alloc + zero out allocation
+args: rSize  # single arg syntax -- for generic heap allocations
+args: rID, rSize  # 2 args -- for allocating to cache regions
+ <-- rAlloc, rMeta, rAligned, rSize, rID
+ <-- cr1.lt: bIsAvailable,  cr1.gt: bIsARAM,  cr1.eq: bIsHeap
+ # returns rAlloc as alloc address, and rAligned as real size
+ # - if bAvailable is False -- rAlloc will be null
+
+# rMeta is heap/cache metadata:
+rMeta  # for OSHeap Fragment Metadata (ID 0)...
+0x0 = Previous Fragment
+0x4 = Next Fragment
+0x8 = Fragment size
+
+rMeta  # for Preload Cache Stack Frame Metadata...
+0x0 = Next frame
+0x4 = Point to cache alloc
+0x8 = Frame size
+
+# rID references one of the defeind caches/object heap
+rID  # Default HSD Memory Region IDs
+0 = HEAP  -- RAM  -- HSD Object Heap (OSHeap[1])
+1 = CACHE -- ARAM -- Excess ARAM fragment
+2 = CACHE -- RAM  -- Priority Archive Cache
+3 = CACHE -- RAM  -- Main Archive Cache
+4 = CACHE -- RAM  -- Preload Archive Cache
+5 = CACHE -- ARAM -- Aux Preload Archive Cache
+
+
+mem.free  # Free an allocation
+args: rAlloc  # dynamic heap allocation (freed to heap[1])
+
+
+mem.push  # change the size defs of arena/preload regions
+args: rID, rAdd  # IDs 0/1 are replaced with ArenaLo/Hi
+ <-- rSize, rAddr  # rAddr is only returned on Arena push
+ # NOTE: only takes place on scene changes
+ # NOTE: Arena can only be changed on game start
+
+
+mem.info  # has 3 input variations...
+args: rAddr  # return info about region and allocation (SRAM)
+ <-- rID, rMem, rHeap, rCache, rAlloc, rSize, rMeta, rOffset, rStatic, rString
+ <-- cr1.lt: bInRegion, cr1.gt: bIsAllocated, cr1.eq: bIsHeap
+ # rOffset measures input rAddr relative to rAlloc
+
+args: rID, rSize  # or return info about first found allocation
+ <-- rID, rMem, rHeap, rCache, rAlloc, rSize, rMeta, rOffset, rStatic, rString
+ <-- cr1.lt: bIsAvailable, cr1.gt: bIsARAM, cr1.eq: bIsHeap
+
+args: rID, -1  # or return info about current remaining space
+ <-- rID, rMem, rHeap, rCache, rFCount, rFBig, rFTotal, rACount, rABig, rATotal
+ <-- cr1.lt: bIsAvailable, cr1.gt: bIsARAM, cr1.eq: bIsHeap
+ # NOTE: this 3rd format is returned if no target is found
+
+rStatic  # Static region IDs 0 ... 11:
+"HEAD", "TEXT", "DATA", "BSS", "SDATA", "TOC", "RTS", "ArenaLo", "HWHeap", "HSD", "ArenaHi", "FST"
+# NOTE: HSDMem encompasses all preload caches, and HSDHeap
+
+
+mem.ID  # return information about memory region, by ID
+args: rID  # rID is a number between 0 and 5
+ <-- rID, rMem, rHeap, rCache, rStart, rSize, rDef, rDefSize
+ <-- cr1.lt: bIsAvailable, cr1.gt: bIsARAM, cr1.eq: bIsHeap
+
+ rMem  # for IDs 0 ... 5
+ 0x0 = Heap ID  (if applicable)
+ 0x4 = point to Cache Boundary Descriptor (if applicable)
+ 0x8 = point to Address of Boundary Start
+ 0xC = Size of Region
+ 0x10 = Region Lo behavior
+ 0x14 = intialized flag? (1 = after init?)
+ 0x18 = disabled flag?   (1 = not available)
+
+ rHeap  # for ID 0, or any region modified to use OSHeap
+ 0x0 = total bytes (in initial fragment)
+ 0x4 = point to first Free Fragment Metadata
+ 0x8 = point to first Allocated Fragment Metadata
+
+ rCache  # for IDs 1 ... 5 -- mostly used for preloading
+ 0x0 = to next descriptor??
+ 0x4 = point to region boundary low pointer
+ 0x8 = point to region boundary high pointer
+ 0xC = point to first Cache Frame Metadata
+
+ rDef  # for IDs 2 ... 5 -- defined in the DOL
+ 0x0 = Memory Region ID (0 ... 5)
+ 0x4 = Behavior ID
+ 0x8 = Region ID to come after
+ 0xC = Region Size
+[Punkline]
+
+<mem.alloc> NTSC 1.02
+# Allocate a piece of memory available from one of 6 partitions
+
+# --- args:  Common
+# r3 = number of bytes (> 5)
+#    - all allocations are rounded up to the nearest 0x20 byte ceiling alignment
+#    - all allocations are collapsed at end of scene, and use OSHeap[1] -- the HSD Object heap
+
+# --- args:  Specific Partition
+# r3 = HSD Memory Region ID (<= 5)
+#    - 0  -- HEAP  -- RAM  -- HSD Object Heap (OSHeap[1])  - minor scene persistence
+#    - 1  -- CACHE -- ARAM -- Excess ARAM fragment         - minor scene persistence
+#    - 2  -- CACHE -- RAM  -- Priority Archive Cache       - full game persistence
+#    - 3  -- CACHE -- RAM  -- Main Archive Cache           - full game persistence
+#    - 4  -- CACHE -- RAM  -- Preload Archive Cache        - major scene persistence
+#    - 5  -- CACHE -- ARAM -- Aux Preload Archive Cache    - major scene persistence
+# r4 = number of bytes
+#    - all allocations are rounded up to the nearest 0x20 byte ceiling alignment
+#    - allocation volatility is determined by the region
+
+# --- returns:
+# cr1.lt = bIsAvailable -- there is metadata available for this region
+# cr1.gt = bIsARAM      -- ARAM can't be read/written to directly by the CPU
+# cr1.eq = bIsHeap      -- uses OSHeap metadata structure instead of HSD Cache metadata structure
+# r3 = address of allocation
+# r4 = Metadata for this allocation (different based on Heap or Cache)
+# r5 = number of bytes allocated (after alignment)
+# r6 = number of bytes allocated and zeroed (before alignemnt)
+# r7 = HSD Memory Region ID
+
+ # for OSHeap Fragment Metadata (ID 0)...
+ #   - 0x0 = Previous Fragment
+ #   - 0x4 = Next Fragment
+ #   - 0x8 = Fragment size
+
+ # for Preload Cache Stack Frame Metadata...
+ #   - 0x0 = Next frame
+ #   - 0x4 = Point to cache alloc
+ #   - 0x8 = Frame size
+li r5, 0
+b <mem.__alloc_handler>
+<mem.allocz> NTSC 1.02
+li r5, 1
+b <mem.__alloc_handler>
+<mem.__alloc_handler> NTSC 1.02
+.include "punkpc.s"
+punkpc ppc
+prolog +0x20, xReturns, rID, rSize, rAlign, rMeta, rAlloc, rReturns, rCR
+enum (b31), -1, bZero, bTry
+mfcr rCR
+cmpwi r3, 5
+mtcrf 0x01, r5
+li rID, 0
+mr rSize, r3
+li rAlloc, 0
+bgt+ 0f
+  mr rID, r3
+  mr rSize, r4
+  # This initialization sets up both the 1 arg and 2 arg input syntaxes
+  # - now both cases can be treated with the same code
+
+0:
+addi r0, rSize, 0x1F
+rlwinm. rAlign, r0, 0, ~0x1F
+# If not already aligned, pad the size to a ceiling 0x20 byte alignment
+
+mr r3, rID
+mr r4, rSize
+bl <mem.info>
+mcrf 6, 1
+enum (cr6.lt), +1, bIsAvailable, bIsARAM, bIsHeap
+# bool info about memory query is saved to cr6
+
+bf- bIsAvailable, _return
+crandc bZero, bZero, bIsARAM
+# if cache or heap is currently not available, then return nulls
+
+mr r3, rID
+mr r4, rSize
+bl 0x80015bd0
+# create allocation
+
+mr rAlloc, r3
+subi rMeta, rAlloc, 0x20
+bt+ bIsHeap, 0f
+  mr rMeta, r3
+  lwz rAlloc, 4(r3)
+0: # get rMeta depending on allocation type
+
+bf+ bZero, _return
+  mr r3, rAlloc
+  mr r4, rSize
+  bl 0x8000c160
+  # zero out region, if flagged
+
+_return:
+addi rReturns, sp, sp.xReturns
+mcrf 1, 6
+mtcrf 0xbf, rCR
+stmw rAlloc, 0(rReturns)
+lswi r3, rReturns, 0x14
+epilog
+blr
+
+
+<mem.free> NTSC 1.02
+# Free a dynamically allocated fragment from the Object Heap
+# - can only be applied to allocations that have contiguous OSHeap metadata at offset -0x20
+
+# --- args:
+# r3 = start of allocation from OSHeap[1]
+b 0x8037f1b0
+
+
+<mem.push> NTSC 1.02
+# Push the size of a given memory region by adding/subtracting bytes to the size definition
+# - This 'pushes' or 'pops' memory to a region on next scene change
+# - OSArena pushes can only be made before the first scene has begun
+
+# --- args:
+# r3 = rID  NOTE: 0 and 1 can't be pushed, because they are remainders of total SRAM and DRAM
+#           - 0 has been replaced with 'OSArenaLo'
+#           - 1 has been replaced with 'OSArenaHi'
+# r4 = bytes to add/subtract to Region
+
+# --- return:
+# r3 = address of MemDef (or OSArena Pointer variable)
+# r4 = new byte total (or new OSArena push start address)
+.include "melee"
+melee mem
+punkpc ppc
+regs (r3), rDef, rBytes, (r3), rID, rPush, (r4), rPoint
+subic. r0, rID, 2
+blt- _OS_Arena_Definition
+
+  _HSD_Memory_Definition:
+  load rDef, MemDef.addr
+  mulli r0, r0, MemDef.size
+  add rDef, rDef, r0
+  lwz r0, MemDef.xSize(rDef)
+  add rBytes, rPush, r0
+  stw rBytes, MemDef.xSize(rDef)
+  blr
+
+  _OS_Arena_Definition:
+  lwz r5, r13.xOSArenaHi(r13)
+  lwz r0, r13.xOSArenaLo(r13)
+  sub r5, r5, r0
+  sub. r0, r5, rPush
+  bgt+ 0f; li rPush, 0; 0:
+  # if push would be too large for OSArena, then abort
+
+  cmpwi rID, 0
+  addi rDef, r13, r13.xOSArenaLo
+  beq- 0f;  addi rDef, r13, r13.xOSArenaHi; 0:
+  # else, if ID is 1, then negate push size for adding to descending pointer
+
+  lwz rPoint, 0(rDef)
+  add r5, rPoint, r0
+  stw r5, 0(rDef)
+  beqlr-
+    mr rPoint, r5
+    blr # if ArenaHi, then the top of new push is at start of subtracted offset
+
+<mem.ID> NTSC 1.02
+.include "melee"
+melee mem
+punkpc ppc
+
+# register/bool names:
+regs (r3), rID, rMem, rHeap, rCache, rStart, rSize, rDef, rDefSize
+enum (cr1.lt), +1, bIsAvailable, bIsARAM, bIsHeap,  (lt), bInRange
+rGlob = rDef
+
+_start_func:
+cmpwi cr1, rID, 0
+load rGlob, MemGlob.addr
+lwz r5, MemGlob.xIDMax(rGlob)
+addi rDef, rGlob, MemGlob.size
+cmplw rID, r5
+crandc bInRange, lt, cr1.lt
+# bInRange encodes a check to see if given r3 ID is within this counted range
+
+li rHeap, 0
+li rCache, 0
+li rStart, 0
+li rSize, 0
+li rDefSize, 0
+mtcrf 0x40, rHeap
+bt+ bInRange, _region
+# initialize all return values as null, for case of oob
+
+  _arena:
+  li rMem, 0
+  # if the given ID is invalid (like -1), then just return info about OSArena instead
+  # - bool bIsAvailable is still returned false, to reflect bad input ID
+  #   - additionally, rMem will be null
+
+  lwz rSize, r13.xOSArenaHi(r13)
+  lwz rStart, r13.xOSArenaLo(r13)
+  sub rSize, rSize, rStart
+  blr # High is represented as a delta size
+  # - this means that if rSize is returned as '0' -- then the arena is closed
+
+_region:
+load rMem, MemDesc.addr
+mulli r0, rID, MemDef.size
+add rMem, rMem, r0
+lwz r0, MemDesc.xDisabled(rMem)
+cmpwi cr1, r0, 1
+crand bIsAvailable, bIsAvailable, bInRange
+# if xDisabled var is 0 and bInRange, then bIsAvailable
+
+lwz r0, MemDesc.xInit(rMem)
+cmpwi r0, 1
+crand bIsAvailable, bIsAvailable, eq
+# bIsAvailable &= bIsInitialized
+
+lwz r0, MemDesc.xBehavior(rMem)
+cmpwi r0, 2
+crmove bIsARAM, gt
+# ARAM IDs are 3 and 4 -- so if >2, expect ARAM (DRAM) cache instead of normal SRAM
+
+lwz r0, MemDesc.xHeapID(rMem)
+cmpwi r0, -1
+crmove bIsHeap, gt
+# If a Heap ID is >=0, then it is referencing an OSHeap to divert to instead of an HSD cache
+
+bflr- bIsAvailable
+# null init register values and calculated bools are returned if region is not available
+# - if in range, initialized, and not disabled -- then registers are filled with information
+
+_return_info:
+bf- bIsHeap, 0f
+  lwz rHeap, r13.xOSHeapDescs(r13)
+  mulli r0, r0, HeapDesc.size  # r0 still holds xHeapID value
+  add rHeap, rHeap, r0
+  b 1f
+0: lwz rCache, MemDesc.xCache(rMem)
+1: # if bIsHeap then return heap info; else return cache info
+# - the opposite case will have a corresponding null in its return register
+
+subic. r0, rID, 2
+blt+ 0f
+  mulli r0, r0, MemDef.size
+  add rDef, rDef, r0
+  lwz rDefSize, MemDef.xSize(rDef)
+  b 1f
+0: li rDef, 0
+1: # if ID is >=2, then it has a static definition
+# - else, return a null for rDef -- to avoid returning arbitrary data
+
+lwz rStart, MemDesc.xStart(rMem)
+lwz rSize, MemDesc.xSize(rMem)
+blr # return region boundary summary from memory descriptor
+
+
+<mem.static_boundaries> NTSC 1.02
+count = 12
+_head:  .byte _bounds-_head, _strings-_head, count
+# 0x0 = offset of boundaries array
+# 0x1 = offset of strings array
+# 0x2 = number of boundary definitions
+# 0x3 = (start of string offset byte array)
+
+.altmacro; i = -1
+.rept count;  i = i+1
+  .irp n, %i; .byte \n\()f-_head; .endr
+.endr; .align 2 # emit pointer bytes, to start of each null-terminated string
+# - these are all offsets from base of this data table, at '_head'
+
+_bounds:
+.long 0x80000000  # 0 - "HEAD"    -- these are predictable static boundaries
+.long 0x80005940  # 1 - "TEXT"
+.long 0x803b7240  # 2 - "DATA"
+.long 0x804316c0  # 3 - "BSS"
+.long 0x804D36A0  # 4 - "SDATA"
+.long 0x804D79e0  # 5 - "TOC"
+.long 0x804DEC00  # 6 - "RTS"
+.long 0x804EEC00  # 7 - "ArenaLo"
+.long 0, 0, 0, 0  # 8, 9, 10, 11  -- these last ones are procedurally written, at runtime
+
+_strings:
+# strings are kept at end of table:
+0:  .asciz "HEAD"
+1:  .asciz "TEXT"
+2:  .asciz "DATA"
+3:  .asciz "BSS"
+4:  .asciz "SDATA"
+5:  .asciz "TOC"
+6:  .asciz "RTS"
+7:  .asciz "ArenaLo"
+8:  .asciz "HWHeap"
+9:  .asciz "HSD"
+10: .asciz "ArenaHi"
+11: .asciz "FST"
+.align 2
+
+
+<mem.info> NTSC 1.02
+.include "melee"
+melee mem
+punkpc ppc
+prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rBase, rSize, rOffset, rMeta, rStatic, rString, rReturns, rCR, +0x20, xReturns
+  # saved registers, and temp workspace in sp
+
+  regs (r3), rID, rMem, rHeap, rCache, rFCount, rFBig, rFTotal, rACount, rABig, rATotal
+  # returned registers (for failed parse)
+
+  enum (cr1.lt), +1, bIsAvailable, bIsARAM, bIsHeap, (eq), bInvalid
+  # bools used in parse/return
+
+  enum (cr2.lt), +1, bIsValid, bMatchRAM, bMatchType, bMatch, bPass, bCheckSize
+  # bools used in parse
+
+  enum.enum_conc "OS.",, (0x28), xSRAMSize, (0xD0), xDRAMSize, (0x38), xFSTStart
+  # - various OS params, in static OS head (low 256 bytes of SRAM)
+
+  enum.enum_conc "datahead.",, (0), +1, xBoundaries, xStrings, xCount, size
+  # - custom data in rData has a header with 3 bytes, followed by an array of byte pointers
+
+
+  rGlob = rMem
+  bInRegion = bIsAvailable
+  bIsAllocated = bIsARAM
+  # aliases
+
+  mfcr rCR
+  mr rArg, r3
+  mr rArg2, r4
+  lis rOS, 0x8000
+  lwz rHigh, OS.xDRAMSize(rOS)
+  lwz rLow, OS.xSRAMSize(rOS)
+  addi rReturns, sp, sp.xReturns
+  add rLow, rLow, rOS
+  cmplw cr2, rArg, rHigh
+  cmplw rLow, rArg
+  crand bIsValid, bIsValid, lt
+  # validity requires that r3 be within ID, SRAM or DRAM integer range
+
+  lis r31, <<mem.static_boundaries>>@h
+  ori r31, r31, <<mem.static_boundaries>>@l
+  # rData is now pointing to static boundaries data table
+  # - since the last 4 boundaries are decided by moddable circumstances, they must be updated
+
+
+  lbz r0, datahead.xBoundaries(rData)
+  add rThis, rData, r0
+  # rThis points to base of word-aligned boundary definitions
+
+  load rGlob, MemGlob.addr
+  lwz rHeap, r13.xOSHeapDescs(r13)
+  lwz rHigh, MemGlob.xSRAMLo(rGlob)
+  lbz rSize, datahead.xCount(rData)
+  lwz r0, HeapDesc.xSize(rHeap)
+  subi rNext, rSize, 5
+  sub rLow, rHigh, r0
+  slwi rNext, rNext, 2
+  add rNext, rThis, rNext
+  stwu rLow, 0x4(rNext)
+  stwu rHigh, 0x4(rNext)
+  lwz rLow, MemGlob.xSRAMHi(rGlob)
+  lwz rHigh, OS.xFSTStart(rOS)
+  stw rLow, 0x4(rNext)
+  stw rHigh, 0x4(rNext)
+  # IDs 8...11 have been updated
+
+  bl <mem.ID>  # returns rID, rMem, rHeap, rCache, and cr1 bools
+  cmpwi rMem, 0
+  cror cr1.lt, lt, bIsValid
+  mcrf 2, 1
+  # combine check for valid ID with previous check for Addr ranges...
+  # - we move the cr2 bool over to cr1 before copying it back over after combination with whole CRF
+
+  crmove bCheckSize, eq
+  crset bPass
+  crclr bMatch
+  # initialize other bools
+
+  _init_nulls:
+  load rFCount, 0, 0, 0, 0, 0, 0
+  stswi rFCount, rReturns, 6<<2
+  lswi rBase, rReturns, 6<<2
+  # initialize the remaining nulls for return, or start of loop
+  # - if bIsValid == False, then r4, r5, r6 are null from <mem.ID> return
+
+  bf- bIsValid, _return
+  # At this point, bIsValid represents a Validated ID, SRAM Addr, or DRAM Addr...
+  # - if none of those are detected, then just return the above nulls as an error
+
+  bt+ bCheckSize, _loop
+  # ... else, branch into corresponding initialization using recognized input type
+
+    li rID, -1
+    # if checking for addresses, then we don't know what region it is in
+    # - we check each region of matching RAM type detected in bMatchRAM
+
+    cmpwi rArg, 0
+    crnot bMatchRAM, lt
+    # Set MatchRAM bool according to sign in rArg
+    # - True means it is ARAM (DRAM)
+
+
+
+_loop:
+  crnot bPass, bPass
+  # 2 passes, indexed by bool 'bPass'
+
+  # setup logic:
+  bt+ bCheckSize, _check_size_start
+    bt- bPass, 1f
+
+      _next_ID:
+      addi rID, rID, 1
+      bl <mem.ID>
+      cmpwi rMem, 0
+      crmove bIsValid, lt
+      bf- bIsValid, _init_nulls
+      # if all valid IDs are parsed without a match, then return nulls
+
+      crand bIsARAM, bIsARAM, bMatchRAM
+      crand bIsAvailable, bIsAvailable, bIsARAM
+      bf- bIsAvailable, _next_ID
+      # if region doesn't match RAM type of query, then skip it
+
+    1:
+    crclr bIsAllocated
+    crclr bInRegion
+    bt+ bIsHeap, _heap_addr
+
+
+
+      _cache_addr:
+      lwz rLow, CacheDesc.xLow(rCache)
+      cmpw rArg, rLow
+      lwz rHigh, CacheDesc.xHigh(rCache)
+      crnot bMatch, lt
+      cmpw rArg, rHigh
+      crand bMatch, bMatch, lt
+      lwz rMeta, CacheDesc.xMeta(rCache)
+      crset bInRegion
+      li rBase, 0
+      bf+ bMatch, _next_ID
+
+        # for cache addr subloop, we just check each alloc
+        # - if alloc isn't found, but still in range -- then arg is part of free space
+        2:  cmpwi rMeta, 0
+        bge- _cache_addr_is_free
+        lwz rBase, CacheMeta.xAlloc(rMeta)
+        cmpw rArg, rBase
+        blt+ 3f
+          lwz rSize, CacheMeta.xSize(rMeta)
+          add rHigh, rSize, rBase
+          cmpw rArg, rHigh
+          blt- _cache_addr_is_alloc
+        3: lwz rMeta, CacheMeta.xNext(rMeta)
+        b 2b
+
+        _cache_addr_is_alloc:
+        crset bIsAllocated
+
+        _cache_addr_is_free:
+        _set_offset:
+        sub rOffset, rArg, rBase
+        b _return
+
+
+
+    _heap_addr:
+    li rBase, 0
+    lwz rMeta, HeapDesc.xAlloc(rHeap)
+    bf+ bPass, 1f
+      lwz rMeta, HeapDesc.xFree(rHeap)
+    1: # for heap addr subloop, we need to check both allocated and free fragments one by one
+       # - this is done in 2 passes, signified by the bPass bool
+
+      cmpwi rMeta, 0
+      bge- _loop
+      cmpw rArg, rMeta
+      lwz rSize, HeapMeta.xSize(rMeta)
+      crnot bMatch, lt
+      add rHigh, rMeta, rSize
+      cmpw rArg, rHigh
+      addi rBase, rMeta, 0x20
+      crand bMatch, bMatch, lt
+      # we include 0x20 byte meta header in alloc space for complete contiguity
+
+      bt- bMatch, _heap_addr_match
+        lwz rMeta, HeapMeta.xNext(rMeta)
+        b 1b
+
+    _heap_addr_match:
+    crset bInRegion
+    crnot bIsAllocated, bPass
+    b _set_offset
+    # Heap address match measures each individual fragment
+    # - this includes hacked fragments in regions normally OOB to the heap
+
+
+
+  _check_size_start:
+  # if checking for size, then rArg2 contains a size query, and rID is the selected region
+
+  bt+ bIsHeap, _heap_size
+
+    _cache_size:
+    lwz rMeta, CacheDesc.xMeta(rCache)
+    lwz rFBig, MemDesc.xSize(rMem)
+    lwz rNext, CacheMeta.xNext(rMeta)
+    0: cmpwi rNext, 0
+      bge- 0f
+        addi rACount, rACount, 1
+        lwz rThis, CacheMeta.xSize(rMeta)
+        add rATotal, rATotal, rThis
+        cmpwi rThis, rABig
+        ble+ 1f; mr rABig, rThis; 1:
+        mr rMeta, rNext
+        lwz rNext, CacheMeta.xNext(rMeta)
+        b 0b  # count bytes in each push of the cache stack
+
+    0: sub rFTotal, rFBig, rATotal
+    # calculate total free bytes by subtracting counted bytes from defined total
+
+    cmpwi rArg2, rFTotal
+    mr rFBig, rFTotal
+    li rFCount, 1
+    crmove bIsAvailable, lt
+    crmove bMatch, bIsAvailable
+    # finally, see if query size fits within calculated free bytes
+
+    bf- bIsAvailable, _check_for_static_boundary
+    # if not, then return the current state of the parser
+    # - this returns the rF* and rA* for information about the memory region
+
+    lwz rHigh, CacheDesc.xHigh(rCache)
+    mr rSize, rFTotal
+    sub rBase, rHigh, rSize
+    b _return
+    # else, return match values, with bIsAvailable = True
+
+  _heap_size:
+  lwz rMeta, HeapDesc.xFree(rHeap)
+  crclr bMatch
+  bf+ bPass, 0f
+    lwz rMeta, HeapDesc.xAlloc(rHeap)
+    mr rFCount, rACount
+    mr rFTotal, rATotal
+    mr rFBig, rABig
+    # search for free heap fragments first, to confirm if space is/isn't available
+
+    0:
+      cmpwi rMeta, 0
+      bge- 0f
+      lwz rSize, HeapMeta.xSize(rMeta)
+      bt- bPass, 1f
+
+        cmpw rArg2, rSize
+        crmove bMatch, lt
+        bt- bMatch, 0f
+
+        1:
+        cmpw rSize, rABig
+        addi rACount, rACount, 1
+        blt+ 1f; mr rABig, rSize; 1:
+        add rATotal, rATotal, rSize
+        addi rATotal, rATotal, 0x20
+        addi rBase, rMeta, 0x20
+        lwz rMeta, HeapMeta.xNext(rMeta)
+        b 0b
+      # check for match
+
+      0: crandc bIsAvailable, bMatch, bPass
+      bf+ bPass, _loop
+      # if found in first pass, flag bIsAvailable, else set to false
+      # else, second pass checks allocs and does not flag bIsAvailable on match
+
+
+
+
+
+
+
+
+
+
+
+
+  _return:
+  crand bIsValid, bIsValid, bMatch
+  bf- bIsValid, _exit
+  # if valid input was not given, then only a summary of the parse is returned (from working regs)
+
+  stswi rBase, rReturns, 6<<2
+  lswi mem.info.rBase, rReturns, 6<<2
+  # else, copy returns from saved registers over to return registers
+  # - this only applies to successful queries
+
+
+  # Additionally, we want to return a static boundary if successfuly query is in SRAM:
+
+  _check_for_static_boundary:
+  bt- bIsARAM, _exit
+  # the audio samples in ARAM are not well enough documented to label them (at this time)
+  # - if info is for ARAM address (DRAM), then no static boundary ID is given
+
+  rX = rArg2
+  # temp aliases, for registers no longer being used
+
+  lbz rStatic, datahead.xCount(rData)
+  lbz rThis, datahead.xBoundaries(rData)
+  add rThis, rThis, rData
+  # prepare for lwzx index parse...
+
+  _find_static_boundary:
+    subic. rStatic, rStatic, 1
+    beq- 0f
+    slwi rX, rStatic, 2
+    lwzx rLow, rThis, rX
+    cmpw rBase, rLow
+    blt+ _find_static_boundary
+  0:
+  lbz rThis, datahead.xStrings(rData)
+  add rThis, rThis, rData
+  lbzx rX, rThis, rStatic
+  add rString, rData, rX
+  # return static boundary region ID and associated string label
+
+_exit:
+mtcrf 0xBF, rCR
+epilog
+blr
