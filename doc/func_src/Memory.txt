@@ -416,8 +416,6 @@ prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rBase, rSize, rOffset
   enum.enum_conc "datahead.",, (0), +1, xBoundaries, xStrings, xCount, size
   # - custom data in rData has a header with 3 bytes, followed by an array of byte pointers
 
-  enum.enum_conc "data.boundary.",, (8<<2), +4, xHWHeap, xHSD, xArenaHi, xFST
-  # - 4 of the boundaries need to be manually updated before they can be used, so we name them
 
   rGlob = rMem
   bInRegion = bIsAvailable
@@ -450,14 +448,18 @@ prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rBase, rSize, rOffset
   load rGlob, MemGlob.addr
   lwz rHeap, r13.xOSHeapDescs(r13)
   lwz rHigh, MemGlob.xSRAMLo(rGlob)
+  lbz rSize, datahead.xCount(rData)
   lwz r0, HeapDesc.xSize(rHeap)
+  subi rNext, rSize, 5
   sub rLow, rHigh, r0
-  stw rLow, data.boundary.xHWHeap(rThis)
-  stw rHigh, data.boundary.xHSD(rThis)
+  slwi rNext, rNext, 2
+  add rNext, rThis, rNext
+  stwu rLow, 0x4(rNext)
+  stwu rHigh, 0x4(rNext)
   lwz rLow, MemGlob.xSRAMHi(rGlob)
   lwz rHigh, OS.xFSTStart(rOS)
-  stw rLow, data.boundary.xArenaHi(rThis)
-  stw rHigh, data.boundary.xFST(rThis)
+  stw rLow, 0x4(rNext)
+  stw rHigh, 0x4(rNext)
   # IDs 8...11 have been updated
 
   bl <mem.ID>  # returns rID, rMem, rHeap, rCache, and cr1 bools
@@ -634,6 +636,47 @@ _loop:
     # else, return match values, with bIsAvailable = True
 
   _heap_size:
+  lwz rMeta, HeapDesc.xFree(rHeap)
+  crclr bMatch
+  bf+ bPass, 0f
+    lwz rMeta, HeapDesc.xAlloc(rHeap)
+    mr rFCount, rACount
+    mr rFTotal, rATotal
+    mr rFBig, rABig
+    # search for free heap fragments first, to confirm if space is/isn't available
+
+    0:
+      cmpwi rMeta, 0
+      bge- 0f
+      lwz rSize, HeapMeta.xSize(rMeta)
+      bt- bPass, 1f
+
+        cmpw rArg2, rSize
+        crmove bMatch, lt
+        bt- bMatch, 0f
+
+        1:
+        cmpw rSize, rABig
+        addi rACount, rACount, 1
+        blt+ 1f; mr rABig, rSize; 1:
+        add rATotal, rATotal, rSize
+        addi rATotal, rATotal, 0x20
+        addi rBase, rMeta, 0x20
+        lwz rMeta, HeapMeta.xNext(rMeta)
+        b 0b
+      # check for match
+
+      0: crandc bIsAvailable, bMatch, bPass
+      bf+ bPass, _loop
+      # if found in first pass, flag bIsAvailable, else set to false
+      # else, second pass checks allocs and does not flag bIsAvailable on match
+
+
+
+
+
+
+
 
 
 
