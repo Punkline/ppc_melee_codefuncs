@@ -3,7 +3,7 @@ melee.module HSDObj
 .if module.included == 0
 
 # --- Class Info Tables
-HSD.Info.JObj
+HSD.Info.JObj = 0
 
 # --- JObjs
 # Descriptor:

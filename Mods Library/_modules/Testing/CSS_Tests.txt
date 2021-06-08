@@ -1,0 +1,90 @@
+-==-
+
+CSS - Icon selection DPad events
+[Punkline]
+Revision ---- DOL Offset ---- Hex to Replace ---------- ASM Code -
+NTSC 1.02 --- 0x80260c14 ---- 88030002 -> Branch
+.include "melee";
+punkpc ppc          # powerpc utilities
+melee MPad, HSDObj   # controller pad symbols and HSD Symbols
+
+
+# the 'regs' macro helps us name registers counting up +1 or down +1 from a starting register (rN)
+
+regs -1, /*
+*/ (r31), rHand, rBase, rHandJObj, rInput, /*
+*/ (r24), rIcon, rBackup, /*
+*/ (r20), rIconID, rPlayerID
+
+# -- these registers help us understand the context of this injection point
+# 803f0a48 = base address in rBase
+
+
+r13.xCSSJObjRoot    = -0x49E0
+# r13 offset of root JObj for CSS icons/portraits
+
+
+# code start:
+
+mr rIcon, r3
+mr rBackup, r4
+# back these up for now, so that we don't disrupt the normal game program
+# - the assigned registers in the above 'regs' call puts these in a safe place
+
+load r4, MPad.addr
+lwz r0, MPad.xOnPress(r4)
+mtcrf MPad.crf.mDPad, r0
+# We can check DPad button presses from the Master Pad .xOnPress bool field
+# - loading it into cr directly lets us use the bools without having to compare anything
+
+bf+ MPad.bDDown, 0f
+  bl <CSS.icon_select_DDown>
+0: bf+ MPad.bDUp, 1f
+  bl <CSS.icon_select_DUp>
+1: bf+ MPad.bDLeft, 2f
+  bl <CSS.icon_select_DLeft>
+2: bf+ MPad.bDRight, 3f
+  bl <CSS.icon_select_DRight>
+3: # This branch structure executes code according to DPad button presses...
+# - each 'bf' line is a boolean branch condition 'branch if false'
+# - each 'bl' line is a call to one of our custom handlers
+# - each 'N:' number is a temporary label, which is reached with 'Nf' for 'forward' references
+
+
+# You may edit the functions (defined below) to plug example code into these button presses
+
+mr r4, rBackup
+mr r3, rIcon
+# recover old context before finishing injection code...
+
+# original instruction, and return from injection:
+lbz	r0, 0x0002 (r3)
+.long 0
+
+
+
+
+<CSS.icon_select_DDown> NTSC 1.02
+# - change this function to something else to make something happen on DPad button presses
+# - you may re-use the calling context for resources, despite it being unconventional:
+
+.include "melee";
+punkpc ppc
+melee MPad, HSDObj
+regs -1, /*
+*/ (r31), rHand, rBase, rHandJObj, rInput, /*
+*/ (r24), rIcon, rBackup, /*
+*/ (r20), rIconID, rPlayerID
+r13.xCSSJObjRoot    = -0x49E0
+
+blr  # default blr causes nothing to happen...
+
+
+<CSS.icon_select_DUp> NTSC 1.02
+blr  # default blr causes nothing to happen...
+
+<CSS.icon_select_DLeft> NTSC 1.02
+blr  # default blr causes nothing to happen...
+
+<CSS.icon_select_DRight> NTSC 1.02
+blr  # default blr causes nothing to happen...

@@ -2,7 +2,7 @@
 melee.module MPad
 .if module.included == 0
 # --- MPad structure
-MPad.address = 0x804C1FAC
+MPad.addr = 0x804C1FAC
 # This base address can be used to reach the vanilla MPad structures, without any codes
 
 # --- Controller Digital Data bools - these are mapped in each of the button fields

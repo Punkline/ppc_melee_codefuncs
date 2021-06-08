@@ -525,7 +525,7 @@ blr
 .include "punkpc.s"
 punkpc ppc
 prolog xQuery
-stw r3, sp.xQuery
+stw r3, sp.xQuery(sp)
 
 _sync_loop:
   lwz r3, sp.xQuery(r3)
