@@ -142,7 +142,7 @@ bge+ _path_is_positive
     _path_is_pointer:
     # if input is a valid address, then pass it to DVD PathToEntrynum ...
 
-    bl 0x8033696C
+    bl 0x8033796c
     # an entrynum or an error code has been returned in r3 ...
 
     cmpwi rNum, 0
@@ -415,7 +415,7 @@ b <DVD.__read_handler>
 melee DVD
 punkpc ppc
 
-prolog rQuery, rAsync, cr
+prolog rQuery, rAsync, rCR
 # start of function...
 
 regs (r3), rArg
@@ -424,7 +424,7 @@ regs (r3), rRet, rNum, rGiven
 
 enum (eq), +8, bInfo,  +4, bDest, bCallback  # working bools
 enum (cr1.lt), bNotSynced, bMatch, bSynced   # returned bools
-
+mfcr rCR
 cmpwi rArg, -1
 bne+ _begin
 # we check for '-1' as a special input case
@@ -505,6 +505,9 @@ mr rGiven, rQuery
 beq- 0f; lwz r4, DVD.async.xNum(rAsync); 0:
 # if valid, then load rNum from struct instead of default error -1 ...
 
+mtcrf 0xBF, rCR
+# restore only non-returned CR fields
+
 epilog
 blr
 
@@ -524,11 +527,11 @@ blr
 
 .include "punkpc.s"
 punkpc ppc
-prolog xQuery
+prolog +0x10, xQuery
 stw r3, sp.xQuery(sp)
 
 _sync_loop:
-  lwz r3, sp.xQuery(r3)
+  lwz r3, sp.xQuery(sp)
   bl <DVD.async_info>
   # Check for this async event ...
 
@@ -540,7 +543,7 @@ _sync_loop:
     # I think this call makes a status check of some kind in the DVD load
     # - it might be responsible for displaying disk read errors
 
-    b _sync
+    b _sync_loop
     # continue loop until DVD reports it is finished syncing query ...
 
 _return:
@@ -711,7 +714,7 @@ bt- bInvalid, _return
     _load_file:
     mr. r5, rOut
     li r7, 0x23
-    bt+ bIsAddr, 0f; li r7, 0x21; 0:
+    bf+ bIsAddr, 0f; li r7, 0x21; 0:
     # r5 is the output destination for the DVD load to sync with
     # r7 is a bit code representing the type of RAM the DVD hardware should load data into
     # - we check the sign bit of r5 (load destination, output) to see what kind of address is used

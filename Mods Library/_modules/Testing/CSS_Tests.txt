@@ -62,22 +62,36 @@ lbz	r0, 0x0002 (r3)
 .long 0
 
 
+-==-
 
+DVD Tests 1
+[Punkline]
 
 <CSS.icon_select_DDown> NTSC 1.02
-# - change this function to something else to make something happen on DPad button presses
-# - you may re-use the calling context for resources, despite it being unconventional:
-
 .include "melee";
 punkpc ppc
-melee MPad, HSDObj
-regs -1, /*
-*/ (r31), rHand, rBase, rHandJObj, rInput, /*
-*/ (r24), rIcon, rBackup, /*
-*/ (r20), rIconID, rPlayerID
-r13.xCSSJObjRoot    = -0x49E0
+melee MPad, HSDObj, DVD
+prolog r18
+# this shorthand backs up all registers r31...r18 without requiring names...
 
-blr  # default blr causes nothing to happen...
+  regs -1, /*
+  */ (r31), rHand, rBase, rHandJObj, rInput, rData, rArch, rAlloc, /*
+  */ (r24), rIcon, rBackup, /*
+  */ (r20), rIconID, rPlayerID
+  r13.xCSSJObjRoot    = -0x49E0
+
+  data.start
+    .asciz "GmPause.usd"
+    align 2
+  data.end rData
+
+  mr r3, rData
+  li r4, 0
+  bl <DVD.read>
+  # try loading to heap
+
+epilog
+blr
 
 
 <CSS.icon_select_DUp> NTSC 1.02
