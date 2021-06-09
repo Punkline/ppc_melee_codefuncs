@@ -58,8 +58,8 @@ args: rID, -1  # or return info about current remaining space
  <-- cr1.lt: bIsAvailable, cr1.gt: bIsARAM, cr1.eq: bIsHeap
  # NOTE: this 3rd format is returned if no target is found
 
-rStatic  # Static region IDs 0 ... 11:
-"HEAD", "TEXT", "DATA", "BSS", "SDATA", "TOC", "RTS", "ArenaLo", "HWHeap", "HSD", "ArenaHi", "FST"
+rStatic  # Static region IDs 0 ... 10:
+"HEAD", "TEXT", "DATA", "BSS", "SDATA", "TOC", "TEMP", "LOW", "HSD", "HIGH", "FST"
 # NOTE: HSDMem encompasses all preload caches, and HSDHeap
 
 
@@ -353,7 +353,7 @@ blr # return region boundary summary from memory descriptor
 
 
 <mem.static_boundaries> NTSC 1.02
-count = 12
+count = 11
 _head:  .byte _bounds-_head, _strings-_head, count
 # 0x0 = offset of boundaries array
 # 0x1 = offset of strings array
@@ -373,9 +373,9 @@ _bounds:
 .long 0x804316c0  # 3 - "BSS"
 .long 0x804D36A0  # 4 - "SDATA"
 .long 0x804D79e0  # 5 - "TOC"
-.long 0x804DEC00  # 6 - "RTS"
-.long 0x804EEC00  # 7 - "ArenaLo"
-.long 0, 0, 0, 0  # 8, 9, 10, 11  -- these last ones are procedurally written, at runtime
+.long 0x804DEC00  # 6 - "TEMP"
+.long 0x804EEC00  # 7 - "LOW"
+.long 0, 0, 0  # 8, 9, 10  -- these last ones are procedurally written, at runtime
 
 _strings:
 # strings are kept at end of table:
@@ -386,11 +386,10 @@ _strings:
 4:  .asciz "SDATA"
 5:  .asciz "TOC"
 6:  .asciz "RTS"
-7:  .asciz "ArenaLo"
-8:  .asciz "HWHeap"
-9:  .asciz "HSD"
-10: .asciz "ArenaHi"
-11: .asciz "FST"
+7:  .asciz "LOW"
+8:  .asciz "HSD"
+9:  .asciz "HIGH"
+10: .asciz "FST"
 .align 2
 
 
