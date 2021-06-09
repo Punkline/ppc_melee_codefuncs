@@ -12,29 +12,6 @@ DVD.file
   0x4 = DVD Offset of file start
   0x8 = Size of file on disk
 
-DVD.async_info  # returned rAsync struct is 0x24 bytes
- args: rQuery  # rQuery accepts many input types -- see comments
-  <-- rAsync, rNum, rQuery
-  <-- cr1.lt: bNotSynced,  cr1.gt: bMatch,  cr1.eq: bSynced
-
-  rAsync  # Async DVD read queue info struct...
-  0x00 = to next info struct in async queue
-  0x04 = unknown index
-  0x08 = File Entry Number -- can be input into <DVD.file>
-  0x0C = File Read Start -- offset of file to begin DVD read at
-  0x10 = to output destination
-  0x14 = File Read Size
-  0x18 = flags:
-         0038 : 3-bit, unknown ID:
-         0020 :  4 unknown (hardcoded by HSD wrapper)
-         0007 : 3-bit, 'Destination' ID
-         0001 :  1 Virtual RAM (24MB)
-         0003 :  3 Auxiliary RAM (16MB)
-  0x1A = Error code (?) -- gets passed to sync callback as arg r6
-  0x1C = to sync callback (or null, if not used)
-  0x20 = sync callback argument -- passed as arg r4
-
-
 DVD.read
  args: rFile, rOut  # rOut = address to output or an alloc region ID
   <-- rNum, rOut, (null), rBytes, (null), (null), rMeta, rPath, (null)
@@ -60,18 +37,42 @@ DVD.read_archive  # rArch = alloc (or region ID) for output archive obj
   <-- rNum, rOut, (null), rBytes, (null), rArch, rMeta, rPath, (null)
   <-- cr1.eq: bInvalid
 
+
+DVD.async_info  # returned rAsync struct is 0x24 bytes
+args: rQuery  # rQuery accepts many input types -- see comments
+<-- rAsync, rNum, rQuery
+<-- cr1.lt: bNotSynced,  cr1.gt: bMatch,  cr1.eq: bSynced
+
+rAsync  # Async DVD read queue info struct...
+0x00 = to next info struct in async queue
+0x04 = unknown index
+0x08 = File Entry Number -- can be input into <DVD.file>
+0x0C = File Read Start -- offset of file to begin DVD read at
+0x10 = to output destination
+0x14 = File Read Size
+0x18 = flags:
+       +0x0038 : 3-bit, unknown ID:
+       +0x0020 : 4 unknown (hardcoded by HSD wrapper)
+       +0x0007 : 3-bit, 'Destination' ID
+       +0x0001 : 1 Virtual RAM (24MB)
+       +0x0003 : 3 Auxiliary RAM (16MB)
+0x1A = Error code (?) -- gets passed to sync callback as arg r6
+0x1C = to sync callback (or null, if not used)
+0x20 = sync callback argument -- passed as arg r4
+
+
+
 DVD.sync  # CPU waits for DVD to catch up entirely before continuing
- --
 
 DVD.sync_to  # CPU waits for a specific DVD read before coninuing
  args: rQuery
-  --
 
-archive.init  # relocate and initialize an archive file (*.dat)
- args: rArch, rFileStart, rSize
-  --
 
-archive.symbol
+arch.init  # relocate and initialize an archive file (*.dat)
+ args: rArch, rFileStart, rSymbols
+ # If rSymbols is given as null, then default symbols will be used from arch.init.symbols_list
+
+arch.symbol
  args: rArchive, rSymbol
   <-- rAddr
 [Punkline]
@@ -818,29 +819,6 @@ bt- bInvalid, _return
     #   - this read begins immediately if nothing else is currently queued
     #   - the CPU may continue on after the read begins, but can't reach the data until it is synced
 
-    mr. r3, rArch
-    bt+ bIsAddr, _sync
-    # if the given rArch argument is an address, then skip the archive alloc step...
-    # - note: this checks the sign bit, which also catches the '-1' case for not using archives
-
-      _archive_alloc:
-      # ... otherwise, we use the loading time to also allocate a space for the archive object
-      # - this is done just like we did for the _read_alloc step
-
-      li r4, 0x44
-      # r3 = HSD Memory region ID to allocate from ...
-      # r4 = (size of an 'Archive' object in RAM)
-
-      bl 0x80015bd0
-      cmpwi rArch, 2
-      mr rArch, r3
-      # rArch now holds an allocation, if successful
-      # - before overwrite, the ID is checked again to see if we need to extract dest from metadata
-
-      blt+ 0f; lwz rArch, CacheMeta.xAlloc(r3); 0:
-      # rArch now holds the address of its allocation for the archive object, on generation
-
-
     _sync:
     # at this point, the DVD hardware is off doing its own thing asynchronous to the CPU...
     # - we're now deciding whether or not we should wait for it to finish before continuing...
@@ -862,8 +840,8 @@ bt- bInvalid, _return
 
         mr r3, rArch
         mr r4, rOut
-        mr r5, rBytes
-        bl <archive.init>
+        li r5, 0
+        bl <arch.init>
         # This initializer will invoke the functions normally used to init an archive object on load
 
     _get_async_info:
