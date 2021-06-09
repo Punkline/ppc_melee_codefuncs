@@ -563,22 +563,7 @@ b <DVD.sync_to>
 # ---
 
 
-
-
-<archive.init> NTSC 1.02
-# Initialize a newly loaded archive file (DAT or USD file)
-# - init will skip already-initialized files to prevent corruption of pointers in data sections
-# - if a memory region ID is given instead of an allocation address, an allocation will be generated
-
-# --- args:
-# r3 = allocation for writing Archive Object information
-# r4 = File start -- to be initialized
-# r5 = exact file size
-b 0x80016a54
-
-
-
-<archive.symbol> NTSC 1.02
+<arch.symbol> NTSC 1.02
 # Look up a symbol string in a given Archive Object to return the part of the file it represents
 
 # --- args:
@@ -591,8 +576,98 @@ b 0x80380358
 
 
 
+<arch.init> NTSC 1.02
+# Initialize a newly loaded archive file (DAT or USD file)
+# - init will skip already-initialized files to prevent corruption of pointers in data sections
+# - if a memory region ID is given instead of an allocation address, an allocation will be generated
 
-# --- Hidden Layer ...
+# --- args:
+# r3 = allocation for writing Archive Object information
+# r4 = File start -- to be initialized
+# r5 = exact file size
+
+# --- returns:
+# r3 = instantiated archive object (from given r3)
+
+
+.include "melee"
+punkpc ppc
+melee mem
+prolog rArch, rStart, rSize, rInit, rCB, rSymbol, rCount, cr
+mr. rInit, r5
+mr rStart, r4
+blt- 0f
+  lis r0, <<arch.init.symbol_list>>@h
+  ori r28, r0, <<arch.init.symbol_list>>@l
+0: lwz r5, 0(rStart)
+mr. rArch, r3
+blt+ 0f
+
+  _archive_alloc:
+  li r4, 0x44
+  # r3 = HSD Memory region ID to allocate from ...
+  # r4 = (size of an 'Archive' object in RAM)
+
+  bl 0x80015bd0
+  cmpwi rArch, 2
+  mr rArch, r3
+  blt+ 1f; lwz rArch, CacheMeta.xAlloc(r3); 1:
+  # this is necessary to extrac the start address from preload cache metadata
+
+0:
+bl 0x80016a54
+# initialize DAT file, and populate rArch obj with params
+
+lwz rCount, 0(rInit)
+_for_each_element:
+  subic. rCount, rCount, 1
+  ble- _return
+  # terminate when exhausting element count
+
+  lwzu rCB, 0x4(rInit)
+  addi rSymbol, rCB, 0x4
+  mr. r4, rSymbol
+  bge- _for_each_element
+  # if a callback pointer has its sign bit missing, then skip it
+  # - this just allows symbol checks to be toggled
+
+  mr r3, rArch
+  bl <arch.symbol>
+  mtlr rCB
+  cmpwi r3, 0    # r3 = symbol region
+  mr r4, rArch   # r4 = archive object
+  mr r5, rCB     # r5 = address of callback (self -- for local data)
+  mr r6, rSymbol # r6 = string (for this symbol)
+  bltlr
+  b _for_each_element
+  # Callback only executes if symbol exists
+
+_return:
+mr r3, rArch
+epilog
+blr
+
+
+
+<arch.init.symbols_list> NTSC 1.02
+_head:
+.long (_list_end-_list_start)>>2
+
+_list_start:
+  .long <<arch.init.symbol.flush>>
+  .long <<arch.init.symbol.sync>>
+  .long <<arch.init.symbol.static>>
+
+
+  # <-- add to this list to append defaults...
+
+
+
+_list_end:
+
+
+
+
 
 
 
@@ -807,4 +882,60 @@ crnot bAsync, eq
 # bInvalid and bAsync are returned in cr1
 
 epilog
+blr
+
+
+
+
+-==-
+
+Archive "init.sync" handler
+
+Adding an "init.sync" symbol to your DAT file will cause this event to trigger on <arch.init>
+
+'.sync' allows you to specify a sync callback to execute after the file has synced/initialized
+
+The file region for this symbol must begin with the following structure:
+ 0x0 = number of callback pointers
+ 0x4 = start of array of 4-byte pointer elements
+     0x0 = point to callback (in file) to be executed
+- each listed callback pointer must be given an entry in the file's relocation table
+- each callback will be executed (in the order listed) right after the archive object is created
+[Punkline]
+<arch.init.symbol.sync> NTSC 1.02
+blr
+
+-==-
+Archive "init.flush" handler
+
+Adding an "init.flush" symbol to your DAT file will cause this event to trigger on <arch.init>
+
+'.flush' allows you to specify regions of the file that have instructions
+- the CPU may crash if reading new instruction data with mismatching cache data
+ - this flush allows the instruction cache to be synced after new instructions are loaded
+
+The file region for this symbol must begin with the following structure:
+0x0 = number of regions to flush
+0x4 = start of array of 8-byte pointer/size elements
+    0x0 = point to start of flush region
+    0x4 = specify number of bytes to flush
+- each region will have the instruction cache use updated instructions on next execution
+[Punkline]
+<arch.init.symbol.flush> NTSC 1.02
+blr
+
+-==-
+Archive "init.static" handler
+
+Adding an "init.static" symbol to your DAT file will cause this event to trigger on <arch.init>
+
+'.static' allows you to specify a static RAM address to create a pointer to a place in the file
+- these pointers may be used by the rest of the game environment without knowledge of the file
+
+The file region for this symbol must begin with the following structure:
+0x0 = number of static region pointers to create
+0x0 = start of array of
+
+
+<arch.init.symbol.static> NTSC 1.02
 blr
