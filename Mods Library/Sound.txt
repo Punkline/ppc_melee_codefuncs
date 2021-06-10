@@ -1,0 +1,18 @@
+-==-
+
+Sound Effect Functions
+
+sfx.play   # play a sound effect at normal volume, using a full ID
+args: rSFX
+[Punkline]
+<sfx.play> NTSC 1.02
+# Play a sound effect
+
+# --- args:
+# r3 = SFX ID
+
+li r4, 0xFE
+li r5, 0x80
+li r6, 0
+li r7, 7
+b 0x8038cff4
