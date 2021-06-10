@@ -625,16 +625,17 @@ _loop:
     cmpwi rArg2, rFTotal
     lwz rABig, sp.xBiggest(sp)
     crmove bIsAvailable, lt
+    lwz rHigh, CacheDesc.xHigh(rCache)
     crmove bMatch, bIsAvailable
+    sub rFBig, rHigh, rSize
     # finally, see if query size fits within calculated free bytes
 
     bf- bIsAvailable, _check_for_static_boundary
     # if not, then return the current state of the parser
+    mr rSize, rFTotal
+    mr rBase, rFBig
     # - this returns the rF* and rA* for information about the memory region
 
-    lwz rHigh, CacheDesc.xHigh(rCache)
-    mr rSize, rFTotal
-    sub rBase, rHigh, rSize
     b _return
     # else, return match values, with bIsAvailable = True
     # - since there is no real fragment for free cache space, we subtract remaining bytes from ceil
