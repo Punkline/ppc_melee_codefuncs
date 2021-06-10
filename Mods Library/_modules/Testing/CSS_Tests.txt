@@ -64,41 +64,134 @@ lbz	r0, 0x0002 (r3)
 
 -==-
 
-DVD Tests 1
+CSS TESTS - DVD Loading Safety
+While hovering over icon in CSS...
+
+DUp = load "GmPause.usd"
+DDown = load "GmPause.usd" ONLY if there is room in heap
+
+DRight = load "test.hax"
+DLeft = load "test.hax" ONLY if file exists, and there is room
+
+All loads are made redundantly using OSHeap space
+- repeated loads will eventually exhaust free bytes available
 [Punkline]
 
-<CSS.icon_select_DDown> NTSC 1.02
-.include "melee";
-punkpc ppc
-melee MPad, HSDObj, DVD
-prolog r18
-# this shorthand backs up all registers r31...r18 without requiring names...
 
-  regs -1, /*
-  */ (r31), rHand, rBase, rHandJObj, rInput, rData, rArch, rAlloc, /*
-  */ (r24), rIcon, rBackup, /*
-  */ (r20), rIconID, rPlayerID
-  r13.xCSSJObjRoot    = -0x49E0
+<CSS.icon_select_DDown> NTSC 1.02
+.include "melee"
+punkpc ppc
+melee DVD, mem
+prolog rData, rSFX
+enum (0x80), +1, SFX.true, SFX.false
 
   data.start
     .asciz "GmPause.usd"
     align 2
   data.end rData
-
   mr r3, rData
-  li r4, 0
-  bl <DVD.read>
-  # try loading to heap
+  li rSFX, SFX.false
+  bl <DVD.file>
+  bt- DVD.file.bInvalid, _play_sfx
+  # fail if file isn't found for some reason
+
+    mr r4, DVD.file.rBytes
+    # else, get byte size from file system table
+
+    li r3, 0
+    bl <mem.info>
+    bf- mem.info.bIsAvailable, _play_sfx
+    # fail if requested bytes aren't available
+
+      li rSFX, SFX.true
+      mr r3, rData
+      li r4, 0
+      bl <DVD.read>
+      # else, commit to load
+
+  _play_sfx:
+  mr r3, rSFX
+  bl <SFX.play>
 
 epilog
 blr
 
 
 <CSS.icon_select_DUp> NTSC 1.02
-blr  # default blr causes nothing to happen...
+.include "melee"
+punkpc ppc
+melee DVD, mem
+prolog rData
+enum (0x80), +1, SFX.true, SFX.false
+
+  data.start
+    .asciz "GmPause.usd"
+    align 2
+  data.end rData
+  li r3, SFX.true
+  bl <SFX.play>
+  # play SFX first so that we can hear it even on failure
+
+  mr r3, rData
+  li r4, 0
+  bl <DVD.read>
+
+epilog
+blr
+
 
 <CSS.icon_select_DLeft> NTSC 1.02
-blr  # default blr causes nothing to happen...
+.include "melee"
+punkpc ppc
+melee DVD, mem
+prolog rData, rSFX
+enum (0x80), +1, SFX.true, SFX.false
+
+  data.start
+    .asciz "test.hax"
+    align 2
+  data.end rData
+  mr r3, rData
+  li rSFX, SFX.false
+  bl <DVD.file>
+  bt- DVD.file.bInvalid, _play_sfx
+    mr r4, DVD.file.rBytes
+    li r3, 0
+    bl <mem.info>
+    bf- mem.info.bIsAvailable, _play_sfx
+      li rSFX, SFX.true
+      mr r3, rData
+      li r4, 0
+      bl <DVD.read>
+
+  _play_sfx:
+  mr r3, rSFX
+  bl <SFX.play>
+epilog
+blr
+
 
 <CSS.icon_select_DRight> NTSC 1.02
-blr  # default blr causes nothing to happen...
+.include "melee"
+punkpc ppc
+melee DVD, mem
+prolog rData, rSFX
+enum (0x80), +1, SFX.true, SFX.false
+
+  data.start
+    .asciz "test.hax"
+    align 2
+  data.end rData
+  li rSFX, SFX.false
+  mr r3, rData
+  li r4, 0
+  bl <DVD.read>
+  bf- DVD.read.bInvalid, _play_sfx
+    li rSFX, SFX.false
+
+  _play_sfx:
+  mr r3, rSFX
+  bl <SFX.play>
+
+epilog
+blr
