@@ -363,7 +363,7 @@ _head:  .byte _bounds-_head, _strings-_head, count
 .altmacro; i = -1
 .rept count;  i = i+1
   .irp n, %i; .byte \n\()f-_head; .endr
-.endr; .align 2 # emit pointer bytes, to start of each null-terminated string
+.endr; .noaltmacro; .align 2 # emit pointer bytes, to start of each null-terminated string
 # - these are all offsets from base of this data table, at '_head'
 
 _bounds:
@@ -397,7 +397,7 @@ _strings:
 .include "melee"
 melee mem
 punkpc ppc
-prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rBase, rSize, rOffset, rMeta, rStatic, rString, rReturns, rCR, +0x20, xReturns
+prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rBase, rSize, rOffset, rMeta, rStatic, rString, rReturns, rCR, +4, xBiggest, +0x20, xReturns
   # saved registers, and temp workspace in sp
 
   regs (r3), rID, rMem, rHeap, rCache, rFCount, rFBig, rFTotal, rACount, rABig, rATotal
@@ -445,21 +445,17 @@ prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rBase, rSize, rOffset
   # rThis points to base of word-aligned boundary definitions
 
   load rGlob, MemGlob.addr
-  lwz rHeap, r13.xOSHeapDescs(r13)
-  lwz rHigh, MemGlob.xSRAMLo(rGlob)
+  lwz rLow, MemGlob.xSRAMLo(rGlob)
   lbz rSize, datahead.xCount(rData)
-  lwz r0, HeapDesc.xSize(rHeap)
-  subi rNext, rSize, 5
-  sub rLow, rHigh, r0
+  subi rNext, rSize, 4
+  lwz rThis, MemGlob.xSRAMHi(rGlob)
   slwi rNext, rNext, 2
-  add rNext, rThis, rNext
-  stwu rLow, 0x4(rNext)
-  stwu rHigh, 0x4(rNext)
-  lwz rLow, MemGlob.xSRAMHi(rGlob)
   lwz rHigh, OS.xFSTStart(rOS)
-  stw rLow, 0x4(rNext)
-  stw rHigh, 0x4(rNext)
-  # IDs 8...11 have been updated
+  add rNext, rThis, rNext
+  stwu rLow, 0x4(rNext)   # 8 = HSD
+  stwu rThis, 0x4(rNext)  # 9 = HIGH
+  stw rHigh, 0x4(rNext)   # 10 = FST
+  # moddable boundaries are procedurally sampled, updating the static boundaries list
 
   bl <mem.ID>  # returns rID, rMem, rHeap, rCache, and cr1 bools
   cmpwi rMem, 0
@@ -500,7 +496,7 @@ prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rBase, rSize, rOffset
 
 _loop:
   crnot bPass, bPass
-  # 2 passes, indexed by bool 'bPass'
+  # - 2 passes, indexed by bool 'bPass'
 
   # setup logic:
   bt+ bCheckSize, _check_size_start
@@ -597,11 +593,15 @@ _loop:
   _check_size_start:
   # if checking for size, then rArg2 contains a size query, and rID is the selected region
 
+  li r0, 0
+  stw r0, sp.xBiggest(sp)
+  # - biggest sample is reset to null
+
   bt+ bIsHeap, _heap_size
 
     _cache_size:
     lwz rMeta, CacheDesc.xMeta(rCache)
-    lwz rFBig, MemDesc.xSize(rMem)
+    lwz rFTotal, MemDesc.xSize(rMem)
     lwz rNext, CacheMeta.xNext(rMeta)
     0: cmpwi rNext, 0
       bge- 0f
@@ -609,17 +609,21 @@ _loop:
         lwz rThis, CacheMeta.xSize(rMeta)
         add rATotal, rATotal, rThis
         cmpwi rThis, rABig
-        ble+ 1f; mr rABig, rThis; 1:
+        ble+ 1f;
+          mr rABig, rThis
+          stw rMeta, sp.xBiggest(sp)
+          # sample biggest by storing metadata pointer in temp workspace
+
+        1:
         mr rMeta, rNext
         lwz rNext, CacheMeta.xNext(rMeta)
         b 0b  # count bytes in each push of the cache stack
 
-    0: sub rFTotal, rFBig, rATotal
+    0: sub rFTotal, rFTotal, rATotal
     # calculate total free bytes by subtracting counted bytes from defined total
 
     cmpwi rArg2, rFTotal
-    mr rFBig, rFTotal
-    li rFCount, 1
+    lwz rABig, sp.xBiggest(sp)
     crmove bIsAvailable, lt
     crmove bMatch, bIsAvailable
     # finally, see if query size fits within calculated free bytes
@@ -633,6 +637,7 @@ _loop:
     sub rBase, rHigh, rSize
     b _return
     # else, return match values, with bIsAvailable = True
+    # - since there is no real fragment for free cache space, we subtract remaining bytes from ceil
 
   _heap_size:
   lwz rMeta, HeapDesc.xFree(rHeap)
@@ -649,26 +654,30 @@ _loop:
       bge- 0f
       lwz rSize, HeapMeta.xSize(rMeta)
       bt- bPass, 1f
-
         cmpw rArg2, rSize
         crmove bMatch, lt
         bt- bMatch, 0f
 
-        1:
-        cmpw rSize, rABig
-        addi rACount, rACount, 1
-        blt+ 1f; mr rABig, rSize; 1:
-        add rATotal, rATotal, rSize
-        addi rATotal, rATotal, 0x20
-        addi rBase, rMeta, 0x20
-        lwz rMeta, HeapMeta.xNext(rMeta)
-        b 0b
-      # check for match
+      1:
+      cmpw rSize, rABig
+      addi rACount, rACount, 1
+      blt+ 1f;
+        mr rABig, rSize
+        stw rMeta, sp.xBiggest(sp)
+        # sample biggest by storing metadata pointer in temp workspace
 
-      0: crandc bIsAvailable, bMatch, bPass
-      bf+ bPass, _loop
-      # if found in first pass, flag bIsAvailable, else set to false
-      # else, second pass checks allocs and does not flag bIsAvailable on match
+      1:
+      add rATotal, rATotal, rSize
+      addi rATotal, rATotal, 0x20
+      addi rBase, rMeta, 0x20
+      lwz rMeta, HeapMeta.xNext(rMeta)
+      b 0b  # check for match
+
+    0: crandc bIsAvailable, bMatch, bPass
+    lwz rABig, sp.xBiggest(sp)
+    bf+ bPass, _loop
+    # if found in first pass, flag bIsAvailable, else set to false
+    # else, second pass checks allocs and does not flag bIsAvailable on match
 
 
 
