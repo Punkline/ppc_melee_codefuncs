@@ -397,7 +397,7 @@ _strings:
 .include "melee"
 melee mem
 punkpc ppc
-prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rBase, rSize, rOffset, rMeta, rStatic, rString, rReturns, rCR, +4, xBiggest, +0x20, xReturns
+prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rBase, rSize, rOffset, rMeta, rStatic, rString, rReturns, rCR, xBiggest, +0x20, xReturns
   # saved registers, and temp workspace in sp
 
   regs (r3), rID, rMem, rHeap, rCache, rFCount, rFBig, rFTotal, rACount, rABig, rATotal

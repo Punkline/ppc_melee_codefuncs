@@ -598,8 +598,8 @@ prolog rArch, rStart, rSize, rInit, rCB, rSymbol, rCount, cr
 mr. rInit, r5
 mr rStart, r4
 blt- 0f
-  lis r0, <<arch.init.symbol_list>>@h
-  ori r28, r0, <<arch.init.symbol_list>>@l
+  lis r0, <<arch.init.symbols_list>>@h
+  ori r28, r0, <<arch.init.symbols_list>>@l
 0: lwz r5, 0(rStart)
 mr. rArch, r3
 blt+ 0f
@@ -914,6 +914,7 @@ The file region for this symbol must begin with the following structure:
 0x0 = number of static region pointers to create
 0x0 = start of array of
 
+[Punkline]
 
 <arch.init.symbol.static> NTSC 1.02
 blr
