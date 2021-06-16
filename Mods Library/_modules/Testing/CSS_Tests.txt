@@ -37,21 +37,49 @@ mtcrf MPad.crf.mDPad, r0
 # We can check DPad button presses from the Master Pad .xOnPress bool field
 # - loading it into cr directly lets us use the bools without having to compare anything
 
+# We can use these bools to 'call' custom code based on whether or not the bits are True
+# Once the custom code is finished, it will 'return' back to the place it was called from
+
+# Registers r3 ... r12 may be used to safely 'pass' information to our called code
+
+# Currently, we have the following set up:
+# r3 = rIcon -- a descriptor that keeps vars for the icon currently being hovered over by cursor
+# r4 = rMPad -- the master pad struct for player 1 -- contains information about controller buttons
+
+mr r5, rIconID    # r5 = rIconID -- an ID representing which Icon this is
+mr r6, rHand      # r6 = rHand -- a descriptor that keeps vars for the hand cursor
+mr r7, rHandJObj  # r7 = rHandJObj -- the joint object belonging to hand cursor, for model display
+mr r8, rPlayerID  # r8 = rPlayerID --
+# The 'mr' instruction lets us copy ("move") data from saved registers into our argument registers
+
 bf+ MPad.bDDown, 0f
   bl <CSS.icon_select_DDown>
-0: bf+ MPad.bDUp, 1f
+  b 3f
+0: # This branch structure executes code according to DPad Down presses...
+# - the 'bf' line is a boolean branch condition 'branch if false'
+# - the '0:' label is referenced as '0f', as a 'forward' reference
+# - the 'b 3f' line is a forward reaching branch that skips the whole struct
+
+# The 'bf' line causes the CPU to skip over the 'bl' line if the conditions isn't met
+# - this makes it so that the 'bl' line that calls our custom handler is tied to the button press
+# - once the call is finished, the 'b 3f' line skips over the rest of the logic
+
+bf+ MPad.bDUp, 1f
   bl <CSS.icon_select_DUp>
-1: bf+ MPad.bDLeft, 2f
+  b 3f
+1:
+bf+ MPad.bDLeft, 2f
   bl <CSS.icon_select_DLeft>
-2: bf+ MPad.bDRight, 3f
+  b 3f
+2:
+bf+ MPad.bDRight, 3f
   bl <CSS.icon_select_DRight>
-3: # This branch structure executes code according to DPad button presses...
-# - each 'bf' line is a boolean branch condition 'branch if false'
-# - each 'bl' line is a call to one of our custom handlers
-# - each 'N:' number is a temporary label, which is reached with 'Nf' for 'forward' references
 
+3:  # each 'Nf' goes to its corresponding forward reaching 'N:' label
+# - 'Nb' can also be used to make 'backward' reaching references
+#   - because of this, only 2 instances of each number are kept in assembler memory at one time
+#   - these can be thought of as anonymous, local, 'temporary' labels
 
-# You may edit the functions (defined below) to plug example code into these button presses
 
 mr r4, rBackup
 mr r3, rIcon
@@ -60,6 +88,27 @@ mr r3, rIcon
 # original instruction, and return from injection:
 lbz	r0, 0x0002 (r3)
 .long 0
+
+
+-==-
+
+CSS TESTS - Async visualization
+While hovering over icon in CSS...
+
+DUp = sync load file part from DVD into icon texture
+DDown = async load file part from DVD into icon texture
+
+DRight = toggle continuous async load file data through textures
+DLeft = toggle continuous async copy sound data from ARAM
+
+- corruption of image data shows files being loaded, but will otherwise just look like noisy pixels.
+- continuous async streams are propogated by their own sync callbacks, requiring no further injections
+[Punkline]
+
+<CSS.icon_select_DUp> NTSC 1.02
+
+
+<CSS.icon_select_DDown> NTSC 1.02
 
 
 -==-
@@ -75,6 +124,8 @@ DLeft = load "test.hax" ONLY if file exists, and there is room
 
 All loads are made redundantly using OSHeap space
 - repeated loads will eventually exhaust free bytes available
+- if a file is loaded while out of space, the game will freeze
+- if a file name isn't found in FST, it is safely avoided in all cases
 [Punkline]
 
 
@@ -182,7 +233,7 @@ enum (0x80), +1, SFX.true, SFX.false
     .asciz "test.hax"
     align 2
   data.end rData
-  li rSFX, SFX.false
+  li rSFX, SFX.true
   mr r3, rData
   li r4, 0
   bl <DVD.read>

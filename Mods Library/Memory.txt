@@ -464,7 +464,7 @@ prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rBase, rSize, rOffset
   # combine check for valid ID with previous check for Addr ranges...
   # - we move the cr2 bool over to cr1 before copying it back over after combination with whole CRF
 
-  crmove bCheckSize, eq
+  crnot bCheckSize, eq
   crset bPass
   crclr bMatch
   # initialize other bools
@@ -675,6 +675,7 @@ _loop:
       b 0b  # check for match
 
     0: crandc bIsAvailable, bMatch, bPass
+    cror bPass, bPass, bMatch
     lwz rABig, sp.xBiggest(sp)
     bf+ bPass, _loop
     # if found in first pass, flag bIsAvailable, else set to false
