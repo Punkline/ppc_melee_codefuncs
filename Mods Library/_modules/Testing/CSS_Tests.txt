@@ -12,12 +12,12 @@ melee MPad, HSDObj   # controller pad symbols and HSD Symbols
 # the 'regs' macro helps us name registers counting up +1 or down +1 from a starting register (rN)
 
 regs -1, /*
-*/ (r31), rHand, rBase, rHandJObj, rInput, /*
+*/ (r31), rHand, rStart, rHandJObj, rInput, /*
 */ (r24), rIcon, rBackup, /*
 */ (r20), rIconID, rPlayerID
 
 # -- these registers help us understand the context of this injection point
-# 803f0a48 = base address in rBase
+# 803f0a48 = base address in rStart
 
 
 r13.xCSSJObjRoot    = -0x49E0
@@ -32,6 +32,8 @@ mr rBackup, r4
 # - the assigned registers in the above 'regs' call puts these in a safe place
 
 load r4, MPad.addr
+mulli r0, rPlayerID, MPad.size
+add r4, r4, r0
 lwz r0, MPad.xOnPress(r4)
 mtcrf MPad.crf.mDPad, r0
 # We can check DPad button presses from the Master Pad .xOnPress bool field
@@ -44,12 +46,14 @@ mtcrf MPad.crf.mDPad, r0
 
 # Currently, we have the following set up:
 # r3 = rIcon -- a descriptor that keeps vars for the icon currently being hovered over by cursor
-# r4 = rMPad -- the master pad struct for player 1 -- contains information about controller buttons
+# r4 = rMPad -- the master pad struct for this player -- contains info about controller buttons
 
 mr r5, rIconID    # r5 = rIconID -- an ID representing which Icon this is
 mr r6, rHand      # r6 = rHand -- a descriptor that keeps vars for the hand cursor
 mr r7, rHandJObj  # r7 = rHandJObj -- the joint object belonging to hand cursor, for model display
-mr r8, rPlayerID  # r8 = rPlayerID --
+mr r8, rPlayerID  # r8 = rPlayerID -- more like a 'controller slot' ID
+mr r9, rStart      # r9 = rStart -- the start of the array of elements rIcon is pointing to
+lwz r10, r13.xCSSJObjRoot(r13)  # r10 = rRoot -- the root JObj of the CSS menu
 # The 'mr' instruction lets us copy ("move") data from saved registers into our argument registers
 
 bf+ MPad.bDDown, 0f
@@ -77,9 +81,6 @@ bf+ MPad.bDRight, 3f
 
 3:  # each 'Nf' goes to its corresponding forward reaching 'N:' label
 # - 'Nb' can also be used to make 'backward' reaching references
-#   - because of this, only 2 instances of each number are kept in assembler memory at one time
-#   - these can be thought of as anonymous, local, 'temporary' labels
-
 
 mr r4, rBackup
 mr r3, rIcon
@@ -91,7 +92,7 @@ lbz	r0, 0x0002 (r3)
 
 
 -==-
-
+!
 CSS TESTS - Async visualization
 While hovering over icon in CSS...
 
@@ -106,7 +107,6 @@ DLeft = toggle continuous async copy sound data from ARAM
 [Punkline]
 
 <CSS.icon_select_DUp> NTSC 1.02
-
 
 <CSS.icon_select_DDown> NTSC 1.02
 
@@ -127,6 +127,101 @@ All loads are made redundantly using OSHeap space
 - if a file is loaded while out of space, the game will freeze
 - if a file name isn't found in FST, it is safely avoided in all cases
 [Punkline]
+<CSS.icon_display_RAM> NTSC 1.02
+# takes no args
+# - simply converts all icons in CSS into a display of 256x256 RGBA pixels from end of heap
+#   - this reveals the data in the heap by representing words as uncompressed pixels
+#   - all free space is zeroed out on first display
+
+.include "melee"
+punkpc ppc
+melee HSDObj, mem
+prolog rIcon, rCount, rFrag, +0x4, xReturn
+
+Icon.base = 0x803f0b24
+enum.enum_conc "Icon.",, (0), /*
+*/ +1, xPortraitID, xNametagID, xSelectable, xIconID, xIconID_copy,/*
+*/ (8), +4, xUnkID, +0x10, xBox, +0, size
+# icon struct offsets
+
+r13.xCSSJObjRoot    = -0x49E0
+# used for fetching JObjs from skeleton root
+
+load rIcon, (Icon.base-Icon.size)
+li rCount, 25
+li rFrag, 0
+
+_for_each_icon_JObj:
+  subic. rCount, rCount, 1
+  addi rIcon, rIcon, Icon.size
+  blt- _return
+
+    _call:
+    lwz r3, r13.xCSSJObjRoot(r13)
+    addi r4, sp, sp.xReturn
+    lbz r5, Icon.xIconID_copy(rIcon)
+    li r6, -1
+    bl 0x80011e24
+    regs rJObj, rDObj, rMObj, rTObj, rIDesc, rIArray
+    lwz rJObj, sp.xReturn(sp)
+    lwz rDObj, JObj.xDObj(rJObj)
+    lwz rDObj, DObj.xSibling(rDObj)
+    lwz rMObj, DObj.xMObj(rDObj)
+    lwz rTObj, MObj.xTObj(rMObj)
+    lwz rIDesc, TObj.xImageDesc(rTObj)
+    # image descriptor in 'rIDesc'
+
+    lhz r0, ImageDesc.xWidth(rIDesc)
+    cmpwi r0, 256
+    beq- _return
+
+      # This only runs when it detects un-mutated images
+      cmpwi rFrag, 0
+      bne+ 1f
+        li r3, 0
+        li r4, 0
+        bl <mem.info>
+        # this returns mem.info.* registers...
+
+        add rFrag, mem.info.rStart, mem.info.rSize
+        subis rFrag, rFrag, 25<<2
+        # rFrag now points to a place towards the end of the largest heap fragment
+        # - each icon will represent 1/16th of a megabyte
+
+        mr r3, mem.info.rStart
+        mr r4, mem.info.rSize
+        bl <data.zero>
+        # it is also zeroed out, so unloaded bytes display as black pixels with 0% alpha
+        # - the line where pixels appear vs disappear represents the remaining heap fragment
+
+        b _call
+        # this sets up rFrag in cases where memory needs to be parsed, and retries call
+
+      1:
+      stw rFrag, ImageDesc.xPixels(rIDesc)
+      lwz rIArray, TObj.xImageArray(rTObj)
+      cmpwi rIArray, 0
+      bge- 0f; stw rFrag, 0x0(rIArray); 0:
+      addis rFrag, rFrag, 1<<2
+      # update pixel data pointer
+      # - this now points to a 256x256 block of words towards the end of the heap
+
+      li r0, 256
+      sth r0, ImageDesc.xWidth(rIDesc)
+      sth r0, ImageDesc.xHeight(rIDesc)
+      # update height/width
+
+      li r0, 6
+      stw r0, ImageDesc.xType(rIDesc)
+      # change image type to uncompressed RGBA8 (type 6)
+
+      b _for_each_icon_JObj
+
+_return:
+epilog
+blr
+
+
 
 
 <CSS.icon_select_DDown> NTSC 1.02
@@ -163,6 +258,7 @@ enum (0x80), +1, SFX.true, SFX.false
   _play_sfx:
   mr r3, rSFX
   bl <SFX.play>
+  bl <CSS.icon_display_RAM>
 
 epilog
 blr
@@ -186,6 +282,7 @@ enum (0x80), +1, SFX.true, SFX.false
   mr r3, rData
   li r4, 0
   bl <DVD.read>
+  bl <CSS.icon_display_RAM>
 
 epilog
 blr
@@ -218,6 +315,7 @@ enum (0x80), +1, SFX.true, SFX.false
   _play_sfx:
   mr r3, rSFX
   bl <SFX.play>
+  bl <CSS.icon_display_RAM>
 epilog
 blr
 
@@ -243,6 +341,7 @@ enum (0x80), +1, SFX.true, SFX.false
   _play_sfx:
   mr r3, rSFX
   bl <SFX.play>
+  bl <CSS.icon_display_RAM>
 
 epilog
 blr

@@ -340,10 +340,10 @@ TObj.mMtxDirty          = 1<<31;
 ImageDesc.xPixels       = 0x00
 ImageDesc.xWidth        = 0x04
 ImageDesc.xHeight       = 0x06
-ImageDesc.xType         = 0x0C
-ImageDesc.xMipmap       = 0x10
-ImageDesc.xMinLOD       = 0x14
-ImageDesc.xMaxLOD       = 0x18
+ImageDesc.xType         = 0x08
+ImageDesc.xMipmap       = 0x0C
+ImageDesc.xMinLOD       = 0x10
+ImageDesc.xMaxLOD       = 0x14
 
 # TlutDesc:
 TlutDesc.xPalette       = 0x0

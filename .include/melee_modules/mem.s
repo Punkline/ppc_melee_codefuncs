@@ -51,9 +51,9 @@ enum.enum_conc "mem.ID.",, (cr1.lt), +1, bIsAvailable, bIsARAM, bIsHeap
 
 # --- RETURNS for <mem.info>
 # args: r3=rAddress
-enum.enum_conc "mem.info.",, (r3), +1, rID, rMem, rHeap, rCache, rBase, rSize, rOffset, rMeta, rStatic, rString
+enum.enum_conc "mem.info.",, (r3), +1, rID, rMem, rHeap, rCache, rStart, rSize, rOffset, rMeta, rStatic, rString
 enum.enum_conc "mem.info.",, (cr1.lt), +1, bInRegion, bIsAllocated, bIsHeap
-# - rOffset is derived from rBase, but only if r3=rAddress input syntax is used
+# - rOffset is derived from rStart, but only if r3=rAddress input syntax is used
 
 # args: r3=rID, rSize   (alternative syntax)
 enum.enum_conc "mem.info.",, (cr1.lt), +1, bIsAvailable, bIsARAM, bIsHeap
