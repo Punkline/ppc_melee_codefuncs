@@ -469,21 +469,62 @@ DLeft = toggle continuous async copy sound data from ARAM
 punkpc ppc
 melee HSDObj, mem, DVD
 prolog
-
+dimsize = 64
+bytesize = 0x10000
+type = 6
 regs (r3), +1, rIcon, rMPad, rIconID, rHand, rHandJObj, rPlayerID, rStart, rRoot
+
 mr r3, rIconID
-li r4, 6
-lis r5, 1
-li r6, 64
+li r4, type
+load r5, bytesize
+li r6, dimsize
+# r3 = ordered ID (from topleft to bottom right of CSS icons)
+# r4 = image type
+# r5 = byte size
+# r6 = square pixel dims (r6xr6)
+
 bl <CSS.icon_set_image_to_alloc>
-lis r6, 0x1
+load r6, bytesize
+# r3 = rFile
+# r4 = rAlloc
+# r5 = rStart
+# r6 = rBytes
+
 bl <DVD.read_part>
+epilog
+blr
+
+
+<CSS.icon_select_DDown> NTSC 1.02
+
+
+.include "melee"
+punkpc ppc
+melee HSDObj, mem, DVD
+prolog
+dimsize = 64
+bytesize = 0x10000
+type = 6
+regs (r3), rIcon, rMPad, rIconID, rHand, rHandJObj, rPlayerID, rStart, rRoot
+
+mr r3, rIconID
+li r4, type
+load r5, bytesize
+li r6, dimsize
+bl <CSS.icon_set_image_to_alloc>
+regs (r3), rFile, rAlloc, rStart, rBytes, rSyncCB, rSyncArg
+load rBytes, bytesize
+li rSyncCB, 0
+li rSyncArg, 0
+bl <DVD.read_part_async>
+# call async with no sync callback, so we can just see the data get loaded into an image ...
 
 epilog
 blr
-<CSS.icon_select_DDown> NTSC 1.02
-blr
+
+
 <CSS.icon_select_DLeft> NTSC 1.02
+
 blr
 <CSS.icon_select_DRight> NTSC 1.02
 blr

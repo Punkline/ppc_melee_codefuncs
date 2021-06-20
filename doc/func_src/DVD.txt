@@ -67,6 +67,11 @@ DVD.sync_to  # CPU waits for a specific DVD read before coninuing
  args: rQuery
   --
 
+(sync callback args)  # --> passed rSyncCB;  r5 is usually null
+ args: rID, rSyncArg, r5, rErrorID  
+  --
+
+
 archive.init  # relocate and initialize an archive file (*.dat)
  args: rArch, rFileStart, rSize
   --

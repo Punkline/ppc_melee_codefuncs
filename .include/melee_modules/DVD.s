@@ -26,4 +26,9 @@ enum.enum_conc "DVD.async.",, (0), +4, xNext, xIDX, xNum, xStart, xDest, xSize, 
 # args: r3=rFile, r4=rOut, r5=... (additional args vary by function)
 enum.enum_conc "DVD.read.",, (r3), +1, rNum, rOut, rStart, rBytes, rSyncCB, rArch, rMeta, rPath, rAsync, (cr1.lt), bNotSynced, (cr1.eq), bInvalid
 
+
+# --- ARGUMENTS for sync callbacks
+# --> passed to rSyncCB on asynchronous reads
+enum.enum_conc "DVD.syncCB.",, (r3), +1, rID, rSyncArg, (r6), rErrorID
+
 .endif
