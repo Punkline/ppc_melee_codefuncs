@@ -81,6 +81,7 @@ DDesc.xPDesc          = 0xC
 # DObj Instances:
 DObj.xInfo            = HSD.Class.xInfo
 DObj.xSibling         = 0x04
+DObj.xNext            = 0x04  # alias for sibling
 DObj.xMObj            = 0x08
 DObj.xPObj            = 0x0C
 DObj.xUnk             = 0x10

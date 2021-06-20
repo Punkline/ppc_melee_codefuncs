@@ -5,7 +5,7 @@ melee HSDObj
 
 # --- Macros:
 
-.macro GObj.desc/*
+.macro GObj.GDesc/*
   Creates GObjs that can be initialized with a starting GProc/GXDraw function, and a data table
 
   # Desc format is as follows:
@@ -31,12 +31,12 @@ melee HSDObj
   .irp x, /* for each callback
   */    "\GProc,  \RAM_GProc",/*
   */    "\GXDraw, \RAM_GXDraw",;
-    GObj.desc.check_callback_type \x;
+    GObj.GDesc.check_callback_type \x;
 
   .endr; .long (\Data & 0xffffff) | (\SPriority << 24)
   .byte \PLink,\GXLink,\PPriority,\GXPriority
 
-.endm; .macro GObj.desc.check_callback_type, label, RAM, ID
+.endm; .macro GObj.GDesc.check_callback_type, label, RAM, ID
   # this macro helps avoid accidentally trying to evaluate labels with if statements
   # - it creates a way to handle multiple types of address inputs
   .ifnb \label; b \label; .exitm; .endif  # labels get priority
@@ -100,6 +100,8 @@ GProc.mDisable  = 0x40  # a mask for disabling or enabling a GProc, using its 'f
 # --- NTSC 1.02 Callback Addresses
 GObj.GProc.JObjAnimate = 0x8022eae0
 GObj.GXDraw.JObjDisplay = 0x80391070
+GObj.HSD_MemAlloc = 0x8037f1e4
+GObj.HSD_MemFree = 0x8037f1b0
 
 # --- NTSC 1.02 Globals
 # r13 offsets:
