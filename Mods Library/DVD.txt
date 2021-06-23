@@ -68,6 +68,11 @@ DVD.sync_to  # CPU waits for a specific DVD read before coninuing
  args: rQuery
 
 
+ (sync callback args)  # --> passed rSyncCB;  r5 is usually null
+  args: rID, rSyncArg, r5, rErrorID
+   --
+
+
 arch.init  # relocate and initialize an archive file (*.dat)
  args: rArch, rFileStart, rSymbols
  # If rSymbols is given as null, then default symbols will be used from arch.init.symbols_list
@@ -733,9 +738,10 @@ stw r3, 0(rArgs)
 # update r3 with validated query
 
 lmw rNum, 0(rArgs)
-
+lwz rSyncArg, 6<<2(rArgs)
 li rMeta, 0
 li rStr, 0
+li rAsync, 0
 # rSyncArg isn't part of the return interface, so it doesn't quite fit in
 # The other registers default to 0
 

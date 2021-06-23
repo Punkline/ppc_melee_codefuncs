@@ -12,29 +12,6 @@ DVD.file
   0x4 = DVD Offset of file start
   0x8 = Size of file on disk
 
-DVD.async_info  # returned rAsync struct is 0x24 bytes
- args: rQuery  # rQuery accepts many input types -- see comments
-  <-- rAsync, rNum, rQuery
-  <-- cr1.lt: bNotSynced,  cr1.gt: bMatch,  cr1.eq: bSynced
-
-  rAsync  # Async DVD read queue info struct...
-  0x00 = to next info struct in async queue
-  0x04 = unknown index
-  0x08 = File Entry Number -- can be input into <DVD.file>
-  0x0C = File Read Start -- offset of file to begin DVD read at
-  0x10 = to output destination
-  0x14 = File Read Size
-  0x18 = flags:
-         0038 : 3-bit, unknown ID:
-         0020 :  4 unknown (hardcoded by HSD wrapper)
-         0007 : 3-bit, 'Destination' ID
-         0001 :  1 Virtual RAM (24MB)
-         0003 :  3 Auxiliary RAM (16MB)
-  0x1A = Error code (?) -- gets passed to sync callback as arg r6
-  0x1C = to sync callback (or null, if not used)
-  0x20 = sync callback argument -- passed as arg r4
-
-
 DVD.read
  args: rFile, rOut  # rOut = address to output or an alloc region ID
   <-- rNum, rOut, (null), rBytes, (null), (null), rMeta, rPath, (null)
@@ -60,23 +37,47 @@ DVD.read_archive  # rArch = alloc (or region ID) for output archive obj
   <-- rNum, rOut, (null), rBytes, (null), rArch, rMeta, rPath, (null)
   <-- cr1.eq: bInvalid
 
+
+DVD.async_info  # returned rAsync struct is 0x24 bytes
+args: rQuery  # rQuery accepts many input types -- see comments
+<-- rAsync, rNum, rQuery
+<-- cr1.lt: bNotSynced,  cr1.gt: bMatch,  cr1.eq: bSynced
+
+rAsync  # Async DVD read queue info struct...
+0x00 = to next info struct in async queue
+0x04 = unknown index
+0x08 = File Entry Number -- can be input into <DVD.file>
+0x0C = File Read Start -- offset of file to begin DVD read at
+0x10 = to output destination
+0x14 = File Read Size
+0x18 = flags:
+       +0x0038 : 3-bit, unknown ID:
+       +0x0020 : 4 unknown (hardcoded by HSD wrapper)
+       +0x0007 : 3-bit, 'Destination' ID
+       +0x0001 : 1 Virtual RAM (24MB)
+       +0x0003 : 3 Auxiliary RAM (16MB)
+0x1A = Error code (?) -- gets passed to sync callback as arg r6
+0x1C = to sync callback (or null, if not used)
+0x20 = sync callback argument -- passed as arg r4
+
+
+
 DVD.sync  # CPU waits for DVD to catch up entirely before continuing
- --
 
 DVD.sync_to  # CPU waits for a specific DVD read before coninuing
  args: rQuery
-  --
-
-(sync callback args)  # --> passed rSyncCB;  r5 is usually null
- args: rID, rSyncArg, r5, rErrorID  
-  --
 
 
-archive.init  # relocate and initialize an archive file (*.dat)
- args: rArch, rFileStart, rSize
-  --
+ (sync callback args)  # --> passed rSyncCB;  r5 is usually null
+  args: rID, rSyncArg, r5, rErrorID
+   --
 
-archive.symbol
+
+arch.init  # relocate and initialize an archive file (*.dat)
+ args: rArch, rFileStart, rSymbols
+ # If rSymbols is given as null, then default symbols will be used from arch.init.symbols_list
+
+arch.symbol
  args: rArchive, rSymbol
   <-- rAddr
 [Punkline]
@@ -147,7 +148,7 @@ bge+ _path_is_positive
     _path_is_pointer:
     # if input is a valid address, then pass it to DVD PathToEntrynum ...
 
-    bl 0x8033696C
+    bl 0x8033796c
     # an entrynum or an error code has been returned in r3 ...
 
     cmpwi rNum, 0
@@ -420,7 +421,7 @@ b <DVD.__read_handler>
 melee DVD
 punkpc ppc
 
-prolog rQuery, rAsync, cr
+prolog rQuery, rAsync, rCR
 # start of function...
 
 regs (r3), rArg
@@ -429,7 +430,7 @@ regs (r3), rRet, rNum, rGiven
 
 enum (eq), +8, bInfo,  +4, bDest, bCallback  # working bools
 enum (cr1.lt), bNotSynced, bMatch, bSynced   # returned bools
-
+mfcr rCR
 cmpwi rArg, -1
 bne+ _begin
 # we check for '-1' as a special input case
@@ -510,6 +511,9 @@ mr rGiven, rQuery
 beq- 0f; lwz r4, DVD.async.xNum(rAsync); 0:
 # if valid, then load rNum from struct instead of default error -1 ...
 
+mtcrf 0xBF, rCR
+# restore only non-returned CR fields
+
 epilog
 blr
 
@@ -529,11 +533,11 @@ blr
 
 .include "punkpc.s"
 punkpc ppc
-prolog xQuery
+prolog +0x10, xQuery
 stw r3, sp.xQuery(sp)
 
 _sync_loop:
-  lwz r3, sp.xQuery(r3)
+  lwz r3, sp.xQuery(sp)
   bl <DVD.async_info>
   # Check for this async event ...
 
@@ -545,7 +549,7 @@ _sync_loop:
     # I think this call makes a status check of some kind in the DVD load
     # - it might be responsible for displaying disk read errors
 
-    b _sync
+    b _sync_loop
     # continue loop until DVD reports it is finished syncing query ...
 
 _return:
@@ -565,22 +569,7 @@ b <DVD.sync_to>
 # ---
 
 
-
-
-<archive.init> NTSC 1.02
-# Initialize a newly loaded archive file (DAT or USD file)
-# - init will skip already-initialized files to prevent corruption of pointers in data sections
-# - if a memory region ID is given instead of an allocation address, an allocation will be generated
-
-# --- args:
-# r3 = allocation for writing Archive Object information
-# r4 = File start -- to be initialized
-# r5 = exact file size
-b 0x80016a54
-
-
-
-<archive.symbol> NTSC 1.02
+<arch.symbol> NTSC 1.02
 # Look up a symbol string in a given Archive Object to return the part of the file it represents
 
 # --- args:
@@ -593,8 +582,98 @@ b 0x80380358
 
 
 
+<arch.init> NTSC 1.02
+# Initialize a newly loaded archive file (DAT or USD file)
+# - init will skip already-initialized files to prevent corruption of pointers in data sections
+# - if a memory region ID is given instead of an allocation address, an allocation will be generated
 
-# --- Hidden Layer ...
+# --- args:
+# r3 = allocation for writing Archive Object information
+# r4 = File start -- to be initialized
+# r5 = exact file size
+
+# --- returns:
+# r3 = instantiated archive object (from given r3)
+
+
+.include "melee"
+punkpc ppc
+melee mem
+prolog rArch, rStart, rSize, rInit, rCB, rSymbol, rCount, cr
+mr. rInit, r5
+mr rStart, r4
+blt- 0f
+  lis r0, <<arch.init.symbols_list>>@h
+  ori r28, r0, <<arch.init.symbols_list>>@l
+0: lwz r5, 0(rStart)
+mr. rArch, r3
+blt+ 0f
+
+  _archive_alloc:
+  li r4, 0x44
+  # r3 = HSD Memory region ID to allocate from ...
+  # r4 = (size of an 'Archive' object in RAM)
+
+  bl 0x80015bd0
+  cmpwi rArch, 2
+  mr rArch, r3
+  blt+ 1f; lwz rArch, CacheMeta.xAlloc(r3); 1:
+  # this is necessary to extrac the start address from preload cache metadata
+
+0:
+bl 0x80016a54
+# initialize DAT file, and populate rArch obj with params
+
+lwz rCount, 0(rInit)
+_for_each_element:
+  subic. rCount, rCount, 1
+  ble- _return
+  # terminate when exhausting element count
+
+  lwzu rCB, 0x4(rInit)
+  addi rSymbol, rCB, 0x4
+  mr. r4, rSymbol
+  bge- _for_each_element
+  # if a callback pointer has its sign bit missing, then skip it
+  # - this just allows symbol checks to be toggled
+
+  mr r3, rArch
+  bl <arch.symbol>
+  mtlr rCB
+  cmpwi r3, 0    # r3 = symbol region
+  mr r4, rArch   # r4 = archive object
+  mr r5, rCB     # r5 = address of callback (self -- for local data)
+  mr r6, rSymbol # r6 = string (for this symbol)
+  bltlr
+  b _for_each_element
+  # Callback only executes if symbol exists
+
+_return:
+mr r3, rArch
+epilog
+blr
+
+
+
+<arch.init.symbols_list> NTSC 1.02
+_head:
+.long (_list_end-_list_start)>>2
+
+_list_start:
+  .long <<arch.init.symbol.flush>>
+  .long <<arch.init.symbol.sync>>
+  .long <<arch.init.symbol.static>>
+
+
+  # <-- add to this list to append defaults...
+
+
+
+_list_end:
+
+
+
+
 
 
 
@@ -659,9 +738,10 @@ stw r3, 0(rArgs)
 # update r3 with validated query
 
 lmw rNum, 0(rArgs)
-
+lwz rSyncArg, 7<<2(rArgs)
 li rMeta, 0
 li rStr, 0
+li rAsync, 0
 # rSyncArg isn't part of the return interface, so it doesn't quite fit in
 # The other registers default to 0
 
@@ -716,7 +796,7 @@ bt- bInvalid, _return
     _load_file:
     mr. r5, rOut
     li r7, 0x23
-    bt+ bIsAddr, 0f; li r7, 0x21; 0:
+    bf+ bIsAddr, 0f; li r7, 0x21; 0:
     # r5 is the output destination for the DVD load to sync with
     # r7 is a bit code representing the type of RAM the DVD hardware should load data into
     # - we check the sign bit of r5 (load destination, output) to see what kind of address is used
@@ -745,29 +825,6 @@ bt- bInvalid, _return
     #   - this read begins immediately if nothing else is currently queued
     #   - the CPU may continue on after the read begins, but can't reach the data until it is synced
 
-    mr. r3, rArch
-    bt+ bIsAddr, _sync
-    # if the given rArch argument is an address, then skip the archive alloc step...
-    # - note: this checks the sign bit, which also catches the '-1' case for not using archives
-
-      _archive_alloc:
-      # ... otherwise, we use the loading time to also allocate a space for the archive object
-      # - this is done just like we did for the _read_alloc step
-
-      li r4, 0x44
-      # r3 = HSD Memory region ID to allocate from ...
-      # r4 = (size of an 'Archive' object in RAM)
-
-      bl 0x80015bd0
-      cmpwi rArch, 2
-      mr rArch, r3
-      # rArch now holds an allocation, if successful
-      # - before overwrite, the ID is checked again to see if we need to extract dest from metadata
-
-      blt+ 0f; lwz rArch, CacheMeta.xAlloc(r3); 0:
-      # rArch now holds the address of its allocation for the archive object, on generation
-
-
     _sync:
     # at this point, the DVD hardware is off doing its own thing asynchronous to the CPU...
     # - we're now deciding whether or not we should wait for it to finish before continuing...
@@ -789,8 +846,8 @@ bt- bInvalid, _return
 
         mr r3, rArch
         mr r4, rOut
-        mr r5, rBytes
-        bl <archive.init>
+        li r5, 0
+        bl <arch.init>
         # This initializer will invoke the functions normally used to init an archive object on load
 
     _get_async_info:
@@ -809,4 +866,61 @@ crnot bAsync, eq
 # bInvalid and bAsync are returned in cr1
 
 epilog
+blr
+
+
+
+
+-==-
+
+Archive "init.sync" handler
+
+Adding an "init.sync" symbol to your DAT file will cause this event to trigger on <arch.init>
+
+'.sync' allows you to specify a sync callback to execute after the file has synced/initialized
+
+The file region for this symbol must begin with the following structure:
+ 0x0 = number of callback pointers
+ 0x4 = start of array of 4-byte pointer elements
+     0x0 = point to callback (in file) to be executed
+- each listed callback pointer must be given an entry in the file's relocation table
+- each callback will be executed (in the order listed) right after the archive object is created
+[Punkline]
+<arch.init.symbol.sync> NTSC 1.02
+blr
+
+-==-
+Archive "init.flush" handler
+
+Adding an "init.flush" symbol to your DAT file will cause this event to trigger on <arch.init>
+
+'.flush' allows you to specify regions of the file that have instructions
+- the CPU may crash if reading new instruction data with mismatching cache data
+ - this flush allows the instruction cache to be synced after new instructions are loaded
+
+The file region for this symbol must begin with the following structure:
+0x0 = number of regions to flush
+0x4 = start of array of 8-byte pointer/size elements
+    0x0 = point to start of flush region
+    0x4 = specify number of bytes to flush
+- each region will have the instruction cache use updated instructions on next execution
+[Punkline]
+<arch.init.symbol.flush> NTSC 1.02
+blr
+
+-==-
+Archive "init.static" handler
+
+Adding an "init.static" symbol to your DAT file will cause this event to trigger on <arch.init>
+
+'.static' allows you to specify a static RAM address to create a pointer to a place in the file
+- these pointers may be used by the rest of the game environment without knowledge of the file
+
+The file region for this symbol must begin with the following structure:
+0x0 = number of static region pointers to create
+0x0 = start of array of
+
+[Punkline]
+
+<arch.init.symbol.static> NTSC 1.02
 blr

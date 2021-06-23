@@ -331,6 +331,7 @@ epilog
 blr
 
 
+
 <JObj.select_from_root> NTSC 1.02
 # r3 = root JObj (or member of family)
 # r4 = ID to select
@@ -354,6 +355,7 @@ bl 0x80011e24
 lwz r3, sp.xReturns(sp)
 epilog
 blr
+
 
 
 <CSS.icon_display_RAM> NTSC 1.02
@@ -465,6 +467,10 @@ DLeft = toggle continuous async copy sound data from ARAM
 [Punkline]
 
 <CSS.icon_select_DUp> NTSC 1.02
+# --- BASIC LOAD TEST
+# - dpad up will cause 0x10000 bytes to be loaded, and the CPU will have to wait for it
+# - repeatedly testing this may give you a fealing for what the DVD sync time overhead is like
+
 .include "melee"
 punkpc ppc
 melee HSDObj, mem, DVD
@@ -495,8 +501,13 @@ epilog
 blr
 
 
-<CSS.icon_select_DDown> NTSC 1.02
 
+
+<CSS.icon_select_DDown> NTSC 1.02
+# --- ASYNC LOAD TEST
+# - dpad down will also load 0x10000 bytes from disk, but without stalling the CPU
+# - once the DVD has finished syncing, the data will be available for the CPU
+#   - until then however, the CPU cannot access the loaded data
 
 .include "melee"
 punkpc ppc
@@ -523,16 +534,103 @@ epilog
 blr
 
 
-<CSS.icon_select_DLeft> NTSC 1.02
 
+
+
+<CSS.icon_select_DLeft> NTSC 1.02
+# --- DVD ASYNC STREAM TEST
+# - dpad left is the same as dpad down, but repeats 256 times
+
+.include "melee"
+punkpc ppc
+melee HSDObj, mem, DVD
+prolog
+dimsize = 64
+bytesize = 0x10000
+type = 6
+regs (r3), rIcon, rMPad, rIconID, rHand, rHandJObj, rPlayerID, rStart, rRoot
+
+mr r3, rIconID
+li r4, type
+load r5, bytesize
+li r6, dimsize
+bl <CSS.icon_set_image_to_alloc>
+regs (r3), rFile, rAlloc, rStart, rBytes, rSyncCB, rSyncArg
+load rBytes, bytesize
+
+
+data.start
+# start of in-line data table...
+
+  _sync_callback:
+  # This executes when a file part has finished asynchronously loading...
+
+  prolog rMeta
+  enum.enum_conc "meta.",, (0), +4, xPrev, xNext, xAlloc, xSize, xCount, xNum, xOffset
+  # we extend into the unused second half of the header
+
+  mr rMeta, DVD.sync.rSyncArg
+  lbz r3, meta.xCount(rMeta)
+  subic. r3, r3, 1
+  stb r3, meta.xCount(rMeta)
+  beq- _return
+  # this 'stream' repeats itself 256 times in the same allocation (over 256 async reads)
+  # - the iterations are not throttled, but may be delayed by other async demands
+  # - the CPU will not stall while streaming, and multiple streams can be created
+
+    lwz rFile, meta.xNum(rMeta)
+    bl <DVD.file>
+    # we saved the entrynum for rFile, so this will be a near-instant lookup for creating 'rMax'
+
+    regs (r3), rMax, rCheck
+    load rBytes, bytesize
+    sub rMax, DVD.file.rBytes, rBytes
+    lwz rStart, meta.xOffset(rMeta)
+    add rCheck, rStart, rBytes
+    cmpw rCheck, rMax
+    blt+ 0f
+      li rStart, 0
+      mr rCheck, rBytes
+    0: stw rCheck, meta.xOffset(rMeta)
+    # update offset for next iteration
+    # r3 and r4 are now free to use again
+
+    lwz rFile, meta.xNum(rMeta)
+    lwz rAlloc, meta.xAlloc(rMeta)
+    mr rSyncArg, rMeta
+    data.get rSyncCB
+    # get address of _sync_callback: in rSyncCB
+
+    bl <DVD.read_part_async>
+
+  _return:
+  epilog
+  blr
+data.end rSyncCB
+# put address of in-line callback in rSyncCB argument, to pass to async read
+
+subi rSyncArg, rAlloc, 0x20
+# pass 'rMeta' along to callback through the argument that appears in DVD.sync.rSyncArg
+
+stw rFile, meta.xNum(rSyncArg)
+li r0, 0
+stw rStart, meta.xOffset(rSyncArg)
+stb r0, meta.xCount(rSyncArg)
+# update params for sync callback to use
+
+bl <DVD.read_part_async>
+# once DVD syncs, callback will be executed
+
+epilog
 blr
+
 <CSS.icon_select_DRight> NTSC 1.02
 blr
 
 
 
 -==-
-
+!
 CSS TESTS - DVD Loading Safety
 While hovering over icon in CSS...
 

@@ -29,6 +29,6 @@ enum.enum_conc "DVD.read.",, (r3), +1, rNum, rOut, rStart, rBytes, rSyncCB, rArc
 
 # --- ARGUMENTS for sync callbacks
 # --> passed to rSyncCB on asynchronous reads
-enum.enum_conc "DVD.syncCB.",, (r3), +1, rID, rSyncArg, (r6), rErrorID
+enum.enum_conc "DVD.sync.",, (r3), +1, rID, rSyncArg, (r6), rErrorID
 
 .endif
