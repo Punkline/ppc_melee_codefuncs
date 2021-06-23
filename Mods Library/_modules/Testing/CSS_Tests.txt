@@ -525,8 +525,39 @@ li r6, dimsize
 bl <CSS.icon_set_image_to_alloc>
 regs (r3), rFile, rAlloc, rStart, rBytes, rSyncCB, rSyncArg
 load rBytes, bytesize
+
+# in addition to creating an async load, we will also cancel all async streams
+# - this is done by setting all non-0 byte counters to 1, to make the next iter the last iter
+
+regs (rSyncCB), rNext, rThis
+enum.enum_conc "meta.",, (0), +4, xPrev, xNext, xAlloc, xSize, xCount, xNum, xOffset
+# we extend into the unused second half of the header
+
+subi rThis, rAlloc, 0x20
+mr rNext, rThis
+# we will just parse through the cycling list by using rThis as a terminating sentinal
+
+0:
+  lbz r0, meta.xCount(rNext)
+  cmpwi r0, 0
+  beq+ 1f
+  # if the count is already 0, then this allocation is not being streamed to at the moment...
+
+    li r0, 1
+    stb r0, meta.xCount(rNext)
+    # otherwise, we want to cancel it by setting it to 1, so the next decrement goes back to 0
+
+  1:
+  lwz rNext, meta.xNext(rNext)
+  cmpw rThis, rNext
+  bne+ 0b
+  # continue to the next allocation, if we haven't looped all the way through the cycling list...
+
 li rSyncCB, 0
 li rSyncArg, 0
+# finally, we commit to the async call we were setting up
+# - in this case, we're not using any sync callbacks, so we just set those args to null
+
 bl <DVD.read_part_async>
 # call async with no sync callback, so we can just see the data get loaded into an image ...
 
