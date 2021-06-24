@@ -656,6 +656,79 @@ epilog
 blr
 
 <CSS.icon_select_DRight> NTSC 1.02
+
+# --- ARAM ASYNC STREAM TEST
+# - dpad right is the same as dpad left, but uses ARAM DMAs instead of DVD
+
+.include "melee"
+punkpc ppc
+melee HSDObj, mem, DVD
+prolog
+dimsize = 64
+bytesize = 0x10000
+type = 6
+regs (r3), rIcon, rMPad, rIconID, rHand, rHandJObj, rPlayerID, rStart, rRoot
+
+mr r3, rIconID
+li r4, type
+load r5, bytesize
+li r6, dimsize
+bl <CSS.icon_set_image_to_alloc>
+
+regs (r3), rDest, rSource, rLength, rSyncCB, rSyncArg
+mr rDest, r4
+li rSource, 0  # byte 0 of ARAM
+subi rSyncArg, rDest, 0x20
+load rLength, bytesize
+data.start
+
+  _sync_callback:
+  # for ARAM this time, not DVD...
+
+  prolog rMeta
+  enum.enum_conc "meta.",, (0), +4, xPrev, xNext, xAlloc, xSize, xCount, xNum, xOffset
+  # we extend into the unused second half of the header
+
+
+  mr rMeta, r3
+  lbz r3, meta.xCount(rMeta)
+  subic. r3, r3, 1
+  stb r3, meta.xCount(rMeta)
+  beq- _return
+
+    lwz rSource, meta.xOffset(rMeta)
+    load rLength, bytesize
+    add r3, rSource, rLength
+    lis r0, 0x30
+    cmpw r3, r0
+    blt+ 0f; li r3, 0; 0:
+    # - first 3 mb of ARAM is usually populated, while other parts may be blank
+    # - we just display the beginning so that it's obvious that the icons are streaming
+
+    stw r3, meta.xOffset(rMeta)
+    # the offset for next iteration is updated
+
+    mr rSyncArg, rMeta
+    addi rDest, rMeta, 0x20
+    data.get rSyncCB
+    bl <data.copy_async>
+
+  _return:
+  epilog
+  blr
+
+data.end rSyncCB
+# put address of in-line callback in rSyncCB argument, to pass to async read
+
+li r0, 0
+stw rLength, meta.xOffset(rSyncArg)
+stb r0, meta.xCount(rSyncArg)
+# update params for sync callback to use
+
+bl <data.copy_async>
+# once DVD syncs, callback will be executed
+
+epilog
 blr
 
 
