@@ -777,5 +777,24 @@ FObj.xFlags       = 0x10
 
 
 
+# --- SObjs
+
+# SObj Descriptor:
+SDesc.xModelSet       = 0x00
+SDesc.xCamera         = 0x00
+SDesc.xLights         = 0x00
+SDesc.xFog            = 0x00
+
+# SObjs Instance:
+SObj.xNext            = 0x04
+SObj.xPrev            = 0x08
+SObj.xGObj            = 0x0C
+SObj.xTexture         = 0x44
+SObj.xStart_GXTexObj0 = 0x50
+SObj.xStart_GXTlutObj = 0x70
+SObj.xStart_GXTexObj1 = 0x7C
+
+
+
 
 .endif
