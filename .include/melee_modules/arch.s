@@ -1,5 +1,11 @@
 # arch : 'archive' file building macros
 
+# arch  filename.s
+# - this will build the archive file by the given file name in the melee_modules/arch_resources/ dir
+
+# arch.raw  filename.bmp
+# - this will emit the binary
+
 # arch.start  arg1, arg2, arg3
 # - this starts an archive block -- using 'arch.end' to end it
 #   - multiple archives can be encapsulated by nesting these blocks
@@ -33,6 +39,12 @@ melee.module arch
 
 .if module.included == 0
   punkpc items, stack, align
+  
+  module.library arch, ""
+  melee.subdir "arch_resources/", ""
+  # set up a module library called 'arch' for reaching the resources folder
+  # - arch.raw can be used to emit files as binary inline with your assembly
+
 
   items.method arch.__params
   # create a new items pseudo-object to store list of param names ...
