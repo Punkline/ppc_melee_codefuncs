@@ -18,6 +18,9 @@ args: rDest, rSource, rLength, rCallback, rCallbackArg
 # - intended for ARAM <> SRAM copies
 # - rCallback will be executed once copy has finished
 
+  (sync callback arguments)
+  args: rCallbackArg
+
 data.strcmp  # Compare 2 null-terminated strings
 args: rA, rB
  <-- rBool
@@ -62,6 +65,32 @@ b <data.copy_async>
 # r6 = rSync  - sync callback, executes once the ARAM copy has finished
 # r7 = rArg   - sync callback argument, gets passed as r3 to rSync when executed
 
+
+placeholder_count = 4
+# this is the numebr of free queue slots (out of ~8) to keep free for system to use
+# - if more than this many reads are queued, then this will wait until enough have synced
+
+lis r8, 0x8043
+addi r8, r8, 0x16c0
+
+_check_async_queue:
+lwz r0, 0x1e8(r8)
+lwz r9, 0x1e0(r8)
+cmpwi r0, 0
+li r0, placeholder_count
+blt- _func_copy_async
+# reserve placeholders for dealing with simultaneous streams handled by other sync callbacks
+# - this prevents multiple streams from clogging up the 8 default AR descriptors for normal stuff
+
+_for_each_placeholder:
+  cmpwi r9, 0
+  bge- _check_async_queue
+  subic. r0, r0, 1
+  lwz r9, 0(r9)
+  bgt+ _for_each_placeholder
+  # make sure N placeholders are not null, otherwise sync up until they are
+
+_func_copy_async:
 mflr r0
 stwu sp, -0x40(sp)
 stw  r0,  0x40+4(sp)

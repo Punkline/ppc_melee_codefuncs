@@ -1,0 +1,121 @@
+-==-
+
+Data Functions
+
+data.zero  # fill out given area with zero
+args: rData, rLength
+
+data.fill  # fill out given area with a byte value
+args: rData, rFill, rLength
+
+data.copy  # Copies data from r4 over to r3
+args: rDest, rSource, rLength
+# - ARAM addresses are accepted for rSource/rDest
+# - DMA request for ARAM is slow, but faster than DVD
+
+data.copy_async  # Use async DMA queue with custom callback
+args: rDest, rSource, rLength, rCallback, rCallbackArg
+# - intended for ARAM <> SRAM copies
+# - rCallback will be executed once copy has finished
+
+  (sync callback arguments)
+  args: rCallbackArg
+
+data.strcmp  # Compare 2 null-terminated strings
+args: rA, rB
+ <-- rBool
+
+data.cmp  # compare 2 lengths of binary
+args: rA, rB, rLength
+ <-- rBool
+
+data.flush_DC  # flush data cache
+args: rAddr, rLength
+# - prevents race conditions with hardware accessing SRAM
+
+data.flush_IC  # flush instruction cache
+args: rAddr, rLength
+# - forces written ppc instructions to be newly-interpreted
+
+[Punkline]
+<data.zero> NTSC 1.02
+b 0x8000c160
+<data.fill> NTSC 1.02
+b 0x80003130
+<data.copy> NTSC 1.02
+2C030000 40800010
+2C040000 40800008
+b 0x800031f4
+38C0FFFF
+b <data.copy_async>
+
+
+<data.copy_async> NTSC 1.02
+# Copies data from r4 over to r3, allowing for ARAM addresses and sync callbacks
+# - If a -1 is used in place of a callback address, this will become a sync copy instead of async
+# - otherwise, the CPU will not wait for ARAM on return, allowing for immediate action
+#   - the data being copied however will not be available for processing until ARAM has synced
+
+# --- args:
+# r3 = rCopy  - Copy data TO this address
+# r4 = rFrom  - Copy data FROM this address
+# r5 = rLength
+# r6 = rSync  - sync callback, executes once the ARAM copy has finished
+# r7 = rArg   - sync callback argument, gets passed as r3 to rSync when executed
+3D008043 390816C0
+800801E8 812801E0
+2C000000 38000004
+41800018 2C090000
+40A0FFE8 3400FFFF
+81290000 4181FFF0
+7C0802A6 9421FFC0
+90010044 48000018
+4E800021 38000001
+90030000 4E800020
+00000000 2C06FFFF
+40820034 4BFFFFE5
+7CC802A6 38000000
+38E6000C 90070000
+90E10010 4800002D
+80610010 80030000
+2C000000 4082000C
+4BFFFFF0 48000015
+80010044 38210040
+7C0803A6 4E800020
+7C0802A6 3D008043
+90010004 9421FFA8
+BEE10034 7C992378
+7C7A1B79 7CBB2B78
+7CD73378 7CF83B78
+3BE816C0 7F64DB78
+40800014 3BA00001
+7F43D378
+bl 0x803447DC
+48000010 3BA00000
+7F23CB78
+bl 0x80344840
+bl 0x80347364
+3BC30000 839F01E0
+92FC0028 931C002C
+7FB7EB78 3BBF01E0
+801C0000 901D0000
+387F01E4 48000008
+7C030378 80030000
+28000000 4082FFF4
+93830000 38600000
+38800001 907C0000
+909C0004 3C608001
+39434AC4 387C0008
+7F84E378 7EE5BB78
+68A60001 7F27CB78
+7F48D378 7F69DB78
+b 0x80014c90
+
+<data.strcmp> NTSC 1.02
+b 0x803258e8
+<data.cmp> NTSC 1.02
+b 0x803258a8
+<data.flush_DC> NTSC 1.02
+b 0x8034480c
+<data.flush_IC> NTSC 1.02
+b 0x8000543c

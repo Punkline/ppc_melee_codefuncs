@@ -722,7 +722,7 @@ prolog rAsync, rStr, rMeta, rArch, rSyncCB, rBytes, rStart, rOut, rNum, rSize, r
 enum (cr1.eq), bInvalid,  (cr1.lt), bAsync, (lt), bIsAddr
 # returned bools
 
-sp.temp +8<<2, xArgs
+sp.temp +9<<2, xArgs
 addi rArgs, sp, sp.xArgs
 # rArgs now points to a small temporary allocation added to the size of our stack frame
 # - space for the first 8 registers on argument copy, and return copy
@@ -738,7 +738,7 @@ stw r3, 0(rArgs)
 # update r3 with validated query
 
 lmw rNum, 0(rArgs)
-lwz rSyncArg, 7<<2(rArgs)
+lwz rSyncArg, 6<<2(rArgs)
 li rMeta, 0
 li rStr, 0
 li rAsync, 0

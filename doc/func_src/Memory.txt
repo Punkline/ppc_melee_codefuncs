@@ -58,8 +58,8 @@ args: rID, -1  # or return info about current remaining space
  <-- cr1.lt: bIsAvailable, cr1.gt: bIsARAM, cr1.eq: bIsHeap
  # NOTE: this 3rd format is returned if no target is found
 
-rStatic  # Static region IDs 0 ... 11:
-"HEAD", "TEXT", "DATA", "BSS", "SDATA", "TOC", "RTS", "ArenaLo", "HWHeap", "HSD", "ArenaHi", "FST"
+rStatic  # Static region IDs 0 ... 10:
+"HEAD", "TEXT", "DATA", "BSS", "SDATA", "TOC", "TEMP", "LOW", "HSD", "HIGH", "FST"
 # NOTE: HSDMem encompasses all preload caches, and HSDHeap
 
 
@@ -353,7 +353,7 @@ blr # return region boundary summary from memory descriptor
 
 
 <mem.static_boundaries> NTSC 1.02
-count = 12
+count = 11
 _head:  .byte _bounds-_head, _strings-_head, count
 # 0x0 = offset of boundaries array
 # 0x1 = offset of strings array
@@ -363,7 +363,7 @@ _head:  .byte _bounds-_head, _strings-_head, count
 .altmacro; i = -1
 .rept count;  i = i+1
   .irp n, %i; .byte \n\()f-_head; .endr
-.endr; .align 2 # emit pointer bytes, to start of each null-terminated string
+.endr; .noaltmacro; .align 2 # emit pointer bytes, to start of each null-terminated string
 # - these are all offsets from base of this data table, at '_head'
 
 _bounds:
@@ -373,9 +373,9 @@ _bounds:
 .long 0x804316c0  # 3 - "BSS"
 .long 0x804D36A0  # 4 - "SDATA"
 .long 0x804D79e0  # 5 - "TOC"
-.long 0x804DEC00  # 6 - "RTS"
-.long 0x804EEC00  # 7 - "ArenaLo"
-.long 0, 0, 0, 0  # 8, 9, 10, 11  -- these last ones are procedurally written, at runtime
+.long 0x804DEC00  # 6 - "TEMP"
+.long 0x804EEC00  # 7 - "LOW"
+.long 0, 0, 0  # 8, 9, 10  -- these last ones are procedurally written, at runtime
 
 _strings:
 # strings are kept at end of table:
@@ -386,11 +386,10 @@ _strings:
 4:  .asciz "SDATA"
 5:  .asciz "TOC"
 6:  .asciz "RTS"
-7:  .asciz "ArenaLo"
-8:  .asciz "HWHeap"
-9:  .asciz "HSD"
-10: .asciz "ArenaHi"
-11: .asciz "FST"
+7:  .asciz "LOW"
+8:  .asciz "HSD"
+9:  .asciz "HIGH"
+10: .asciz "FST"
 .align 2
 
 
@@ -398,7 +397,7 @@ _strings:
 .include "melee"
 melee mem
 punkpc ppc
-prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rBase, rSize, rOffset, rMeta, rStatic, rString, rReturns, rCR, +0x20, xReturns
+prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rString, rStatic, rMeta, rOffset, rSize, rStart, rReturns, rCR, xBiggest, +0x20, xReturns
   # saved registers, and temp workspace in sp
 
   regs (r3), rID, rMem, rHeap, rCache, rFCount, rFBig, rFTotal, rACount, rABig, rATotal
@@ -446,21 +445,17 @@ prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rBase, rSize, rOffset
   # rThis points to base of word-aligned boundary definitions
 
   load rGlob, MemGlob.addr
-  lwz rHeap, r13.xOSHeapDescs(r13)
-  lwz rHigh, MemGlob.xSRAMLo(rGlob)
+  lwz rLow, MemGlob.xSRAMLo(rGlob)
   lbz rSize, datahead.xCount(rData)
-  lwz r0, HeapDesc.xSize(rHeap)
-  subi rNext, rSize, 5
-  sub rLow, rHigh, r0
+  subi rNext, rSize, 4
+  lwz rThis, MemGlob.xSRAMHi(rGlob)
   slwi rNext, rNext, 2
-  add rNext, rThis, rNext
-  stwu rLow, 0x4(rNext)
-  stwu rHigh, 0x4(rNext)
-  lwz rLow, MemGlob.xSRAMHi(rGlob)
   lwz rHigh, OS.xFSTStart(rOS)
-  stw rLow, 0x4(rNext)
-  stw rHigh, 0x4(rNext)
-  # IDs 8...11 have been updated
+  add rNext, rThis, rNext
+  stwu rLow, 0x4(rNext)   # 8 = HSD
+  stwu rThis, 0x4(rNext)  # 9 = HIGH
+  stw rHigh, 0x4(rNext)   # 10 = FST
+  # moddable boundaries are procedurally sampled, updating the static boundaries list
 
   bl <mem.ID>  # returns rID, rMem, rHeap, rCache, and cr1 bools
   cmpwi rMem, 0
@@ -469,7 +464,7 @@ prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rBase, rSize, rOffset
   # combine check for valid ID with previous check for Addr ranges...
   # - we move the cr2 bool over to cr1 before copying it back over after combination with whole CRF
 
-  crmove bCheckSize, eq
+  crnot bCheckSize, eq
   crset bPass
   crclr bMatch
   # initialize other bools
@@ -477,7 +472,7 @@ prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rBase, rSize, rOffset
   _init_nulls:
   load rFCount, 0, 0, 0, 0, 0, 0
   stswi rFCount, rReturns, 6<<2
-  lswi rBase, rReturns, 6<<2
+  lswi rStart, rReturns, 6<<2
   # initialize the remaining nulls for return, or start of loop
   # - if bIsValid == False, then r4, r5, r6 are null from <mem.ID> return
 
@@ -501,7 +496,7 @@ prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rBase, rSize, rOffset
 
 _loop:
   crnot bPass, bPass
-  # 2 passes, indexed by bool 'bPass'
+  # - 2 passes, indexed by bool 'bPass'
 
   # setup logic:
   bt+ bCheckSize, _check_size_start
@@ -536,18 +531,18 @@ _loop:
       crand bMatch, bMatch, lt
       lwz rMeta, CacheDesc.xMeta(rCache)
       crset bInRegion
-      li rBase, 0
+      li rStart, 0
       bf+ bMatch, _next_ID
 
         # for cache addr subloop, we just check each alloc
         # - if alloc isn't found, but still in range -- then arg is part of free space
         2:  cmpwi rMeta, 0
         bge- _cache_addr_is_free
-        lwz rBase, CacheMeta.xAlloc(rMeta)
-        cmpw rArg, rBase
+        lwz rStart, CacheMeta.xAlloc(rMeta)
+        cmpw rArg, rStart
         blt+ 3f
           lwz rSize, CacheMeta.xSize(rMeta)
-          add rHigh, rSize, rBase
+          add rHigh, rSize, rStart
           cmpw rArg, rHigh
           blt- _cache_addr_is_alloc
         3: lwz rMeta, CacheMeta.xNext(rMeta)
@@ -558,13 +553,13 @@ _loop:
 
         _cache_addr_is_free:
         _set_offset:
-        sub rOffset, rArg, rBase
+        sub rOffset, rArg, rStart
         b _return
 
 
 
     _heap_addr:
-    li rBase, 0
+    li rStart, 0
     lwz rMeta, HeapDesc.xAlloc(rHeap)
     bf+ bPass, 1f
       lwz rMeta, HeapDesc.xFree(rHeap)
@@ -578,7 +573,7 @@ _loop:
       crnot bMatch, lt
       add rHigh, rMeta, rSize
       cmpw rArg, rHigh
-      addi rBase, rMeta, 0x20
+      addi rStart, rMeta, 0x20
       crand bMatch, bMatch, lt
       # we include 0x20 byte meta header in alloc space for complete contiguity
 
@@ -598,11 +593,15 @@ _loop:
   _check_size_start:
   # if checking for size, then rArg2 contains a size query, and rID is the selected region
 
+  li r0, 0
+  stw r0, sp.xBiggest(sp)
+  # - biggest sample is reset to null
+
   bt+ bIsHeap, _heap_size
 
     _cache_size:
     lwz rMeta, CacheDesc.xMeta(rCache)
-    lwz rFBig, MemDesc.xSize(rMem)
+    lwz rFTotal, MemDesc.xSize(rMem)
     lwz rNext, CacheMeta.xNext(rMeta)
     0: cmpwi rNext, 0
       bge- 0f
@@ -610,30 +609,37 @@ _loop:
         lwz rThis, CacheMeta.xSize(rMeta)
         add rATotal, rATotal, rThis
         cmpwi rThis, rABig
-        ble+ 1f; mr rABig, rThis; 1:
+        ble+ 1f;
+          mr rABig, rThis
+          stw rMeta, sp.xBiggest(sp)
+          # sample biggest by storing metadata pointer in temp workspace
+
+        1:
         mr rMeta, rNext
         lwz rNext, CacheMeta.xNext(rMeta)
         b 0b  # count bytes in each push of the cache stack
 
-    0: sub rFTotal, rFBig, rATotal
+    0: sub rFTotal, rFTotal, rATotal
     # calculate total free bytes by subtracting counted bytes from defined total
 
     cmpwi rArg2, rFTotal
-    mr rFBig, rFTotal
-    li rFCount, 1
+    lwz rABig, sp.xBiggest(sp)
     crmove bIsAvailable, lt
+    lwz rHigh, CacheDesc.xHigh(rCache)
     crmove bMatch, bIsAvailable
+    sub rFBig, rHigh, rSize
     # finally, see if query size fits within calculated free bytes
 
     bf- bIsAvailable, _check_for_static_boundary
     # if not, then return the current state of the parser
+
+    mr rSize, rFTotal
+    mr rStart, rFBig
     # - this returns the rF* and rA* for information about the memory region
 
-    lwz rHigh, CacheDesc.xHigh(rCache)
-    mr rSize, rFTotal
-    sub rBase, rHigh, rSize
     b _return
     # else, return match values, with bIsAvailable = True
+    # - since there is no real fragment for free cache space, we subtract remaining bytes from ceil
 
   _heap_size:
   lwz rMeta, HeapDesc.xFree(rHeap)
@@ -650,26 +656,31 @@ _loop:
       bge- 0f
       lwz rSize, HeapMeta.xSize(rMeta)
       bt- bPass, 1f
-
         cmpw rArg2, rSize
         crmove bMatch, lt
-        bt- bMatch, 0f
 
-        1:
-        cmpw rSize, rABig
-        addi rACount, rACount, 1
-        blt+ 1f; mr rABig, rSize; 1:
-        add rATotal, rATotal, rSize
-        addi rATotal, rATotal, 0x20
-        addi rBase, rMeta, 0x20
-        lwz rMeta, HeapMeta.xNext(rMeta)
-        b 0b
-      # check for match
+      1:
+      cmpw rSize, rABig
+      addi rACount, rACount, 1
+      blt+ 1f;
+        mr rABig, rSize
+        stw rMeta, sp.xBiggest(sp)
+        # sample biggest by storing metadata pointer in temp workspace
 
-      0: crandc bIsAvailable, bMatch, bPass
-      bf+ bPass, _loop
-      # if found in first pass, flag bIsAvailable, else set to false
-      # else, second pass checks allocs and does not flag bIsAvailable on match
+      1:
+      add rATotal, rATotal, rSize
+      addi rATotal, rATotal, 0x20
+      addi rStart, rMeta, 0x20
+      lwz rMeta, HeapMeta.xNext(rMeta)
+      bt- bMatch, 0f
+      b 0b  # check for match
+
+    0: crandc bIsAvailable, bMatch, bPass
+    cror bPass, bPass, bMatch
+    lwz rABig, sp.xBiggest(sp)
+    bf+ bPass, _loop
+    # if found in first pass, flag bIsAvailable, else set to false
+    # else, second pass checks allocs and does not flag bIsAvailable on match
 
 
 
@@ -687,8 +698,8 @@ _loop:
   bf- bIsValid, _exit
   # if valid input was not given, then only a summary of the parse is returned (from working regs)
 
-  stswi rBase, rReturns, 6<<2
-  lswi mem.info.rBase, rReturns, 6<<2
+  stswi rStart, rReturns, 6<<2
+  lswi mem.info.rStart, rReturns, 6<<2
   # else, copy returns from saved registers over to return registers
   # - this only applies to successful queries
 
@@ -713,7 +724,7 @@ _loop:
     beq- 0f
     slwi rX, rStatic, 2
     lwzx rLow, rThis, rX
-    cmpw rBase, rLow
+    cmpw rStart, rLow
     blt+ _find_static_boundary
   0:
   lbz rThis, datahead.xStrings(rData)

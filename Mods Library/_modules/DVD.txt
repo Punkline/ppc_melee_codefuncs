@@ -104,111 +104,35 @@ arch.symbol
 # r8 = FST entry
 # r9 = (given path input argument)
 
-.include "melee"
-melee DVD
-punkpc ppc
-# load all powerpc utilities from punkpc...
+7C0802A6 9421FFE0
+90010024 7C0902A6
+90010010 BFE10014
+7C7F1B79 80CDBBE0
+810DBBDC 80EDBBE4
+7CE903A6 40A00034
+3C008180 7C1F0040
+40800010
+bl 0x8033796c
+2C030000 4080FFD8
+4CC63342 3860FFFF
+38C00000 38A0FFFF
+38C0FFFF 4800005C
+7C1F3800 40A1002C
+3860FFFF 38E8FFF8
+8487000C 7C1F2000
+80070004 7CA40214
+7C9F2800 4C402842
+38630001 4002FFE4
+4CC63102 1C03000C
+7D080214 80A80008
+80880000 80E80004
+3805001F 7C843214
+54060034 7FE9FB78
+BBE10014 80010010
+7C0903A6 80010024
+38210020 7C0803A6
+4E800020
 
-prolog rInput, ctr
-# function prolog backs up ctr and a saved register for the input argument ...
-
-regs (r3), rArg
-regs (r3), rNum, rPath, rSize, rAlign, rDVD, rFST, rGiven
-# argument/return register names...
-
-bInvalid = cr1.eq
-# return bit index name, for cr1 return bool
-
-mr. rInput, rArg
-# save argument in rInput, and compare it to 0 ...
-
-
-_try_input:
-regs (r4), rLo, rHi, rStr, rX
-# working register aliases ...
-
-lwz rStr, r13.xFSTPaths(r13)     # Path string pointer array ...
-lwz rFST, r13.xFSTEntries(r13)   # FST struct array base ...
-lwz rX, r13.xFSTCount(r13)       # Number of entries in FST array ...
-mtctr rX
-# prepare loop count using ctr loaded from rX value...
-
-
-# We compared the input arg to 0 so that we can use its sign to handle different input types ...
-
-bge+ _path_is_positive
-# positive numbers are IDs or offsets, negatives might be addresses
-# - all uses of this function return an entrynum ID or an error code -- so this is checked for first
-
-  lis r0, 0x8180
-  cmplw rInput, r0
-  bge- _path_is_invalid
-    # non-address negative numbers are invalid, so catch them here while checking sign
-
-    _path_is_pointer:
-    # if input is a valid address, then pass it to DVD PathToEntrynum ...
-
-    bl 0x8033796c
-    # an entrynum or an error code has been returned in r3 ...
-
-    cmpwi rNum, 0
-    bge+ _try_input
-    # ... if not negative, then retry using the returned entrynum ID
-    # (we branch back so that we can recover our lost setup, after the call)
-    # - else, handle as invalid ...
-
-  _path_is_invalid:
-  crset bInvalid
-  li rNum, -1
-  li rStr, 0
-  li rSize, -1
-  li rAlign, -1
-  b _return # if no path could be returned, return nulls and error codes
-  # - cr1.eq will be true on return, and can be branched from immediately to handle the error
-
-_path_is_positive:
-# When we have a positive number, we may be able to generate an output by navigate the FST
-
-cmpw rInput, rX
-ble+ _have_entrynum
-# If input is <= the total FST range, then it's considered an entrynum ID
-# - entrynum index range will allways be insignificantly small compared to the DVD byte range
-
-  _find_DVD_offset:
-  # Overflowing the entrynum index will cause the parser to check file offsets, instead ...
-
-  li rNum, -1
-  addi rX, rFST, FST.xOffset - 0xC
-  # prepare for iterative lwzu loop to search for file associated with this file offset...
-
-  _for_each_DVD_offset:
-    lwzu rLo, 0xC(rX)  # this iterating offset is aligned to 'xDVD'
-    cmpw rInput, rLo
-    lwz r0, FST.xSize - FST.xOffset(rX)
-    add rHi, rLo, r0
-    cmpw cr1, rInput, rHi
-    crnor eq, lt, cr1.gt
-    # See if offset lands within range of high and low bytes for each file in FST ...
-
-    addi rNum, rNum, 1
-    bdnzf+ eq, _for_each_DVD_offset
-    # if condition is true, or out of iterations, then break loop
-
-_have_entrynum:
-crclr cr1.eq
-mulli r0, rNum, 0xC
-add rFST, rFST, r0
-lwz rSize, FST.xSize(rFST)
-lwz rPath, FST.xStr(rFST)
-lwz rDVD, FST.xOffset(rFST)
-addi r0, rSize, 0x1F
-add rPath, rPath, rStr
-rlwinm rAlign, r0, 0, ~0x1F
-mr rGiven, rInput
-
-_return:
-epilog
-blr
 
 # ---
 
@@ -235,10 +159,8 @@ blr
 # r9  = Allocation Metadata
 # r10 = path string ()
 # r11 =   0   -- (async info object is not available for synchronous reads)
-li r5, 0
-li r6, -1
-li r7, -1
-li r8, -1
+38A00000 38C0FFFF
+38E0FFFF 3900FFFF
 b <DVD.__read_handler>
 
 
@@ -273,11 +195,9 @@ b <DVD.__read_handler>
 # r9  = Allocation Metadata
 # r10 = path string
 # r11 = async file info pointer
-mr r7, r5
-mr r9, r6
-li r6, -1
-li r5, 0
-li r8, -1
+7CA72B78 7CC93378
+38C0FFFF 38A00000
+3900FFFF
 b <DVD.__read_handler>
 
 
@@ -304,8 +224,7 @@ b <DVD.__read_handler>
 # r9  = Allocation Metadata
 # r10 = path string
 # r11 = 0
-li r7, -1
-li r8, -1
+38E0FFFF 3900FFFF
 b <DVD.__read_handler>
 
 
@@ -340,8 +259,7 @@ b <DVD.__read_handler>
 # r9  = Allocation Metadata
 # r10 = path string
 # r11 = async file info pointer
-mr r9, r8
-li r8, -1
+7D094378 3900FFFF
 b <DVD.__read_handler>
 
 
@@ -366,10 +284,8 @@ b <DVD.__read_handler>
 # r9  = Allocation Metadata
 # r10 = path string
 # r11 = 0
-mr r8, r5
-li r5, 0
-li r6, -1
-li r7, -1
+7CA82B78 38A00000
+38C0FFFF 38E0FFFF
 b <DVD.__read_handler>
 
 # ---
@@ -417,106 +333,34 @@ b <DVD.__read_handler>
 #    0x1C : POINT : to sync callback (or null, if not used)
 #    0x20 : WORD  : sync callback argument (or null, if not used) -- passed as arg r4
 
-.include "melee"
-melee DVD
-punkpc ppc
-
-prolog rQuery, rAsync, rCR
-# start of function...
-
-regs (r3), rArg
-regs (r3), rRet, rNum, rGiven
-# argument/return registers
-
-enum (eq), +8, bInfo,  +4, bDest, bCallback  # working bools
-enum (cr1.lt), bNotSynced, bMatch, bSynced   # returned bools
-mfcr rCR
-cmpwi rArg, -1
-bne+ _begin
-# we check for '-1' as a special input case
-
-  lwz rRet, r13.xDVDAsyncQueue(r13)
-  cmpwi cr1, rRet, 0  # this will record true or false in bSynced ...
-  b _return
-  # '-1' will return immediately with the front of the queue, and a check to see if it's null
-  # - bSynced will be true if no async event is present in queue (DVD load is synced with CPU)
-
-_begin:
-mr. rQuery, rArg
-lwz rAsync, r13.xDVDAsyncQueue(r13)
-# otherwise, check to see if queue is empty
-
-cmpwi cr1, rAsync, 0
-crclr bMatch
-bge- cr1, _return
-# start off with a cleared bMatch bool, and check for an initial null
-# - if this pointer is null, it just means no DVD read events are currently queued
-
-  bgt- _check_entrynum_start
-  # if positive, check only for entrynumbers
-
-    cmpwi rQuery, -1
-    beq- _return
-    b _check_if_null  # if Query is a null entrynum (-1), then return without a match
-
-      _check_pointers:
-      cmpw rAsync, rQuery
-      lwz r0, DVD.async.xDest(rAsync)
-      lwz r3, DVD.async.xSyncCB(rAsync)
-      cmpw cr2, r0, rQuery
-      cmpw cr3, r3, rQuery
-      # cr0, cr2, and cr3 have temporary comparisons for the query to possibly match
-
-      cror bMatch, bInfo, bDest
-      cror bMatch, bMatch, bCallback
-      bt- bMatch, _return
-      # If rAsync, Load Destination, or Callback match rQuery, then element is returned ...
-
-        lwz rAsync, DVD.async.xNext(rAsync)
-        # ... else, load the next struct and try that one
-
-    _check_if_null:
-    cmpwi cr1, rAsync, 0
-    blt+ cr1, _check_pointers
-    # continue to check this element only if the link pointer isn't null
-
-      _try_file:
-      mr r3, rQuery
-      bl <DVD.file>
-      b _begin
-      # if a pointer couldn't be found for a match, then we try putting the query through .file
-      # - this should return an entrynum or an error code in r3, so we send thread back to _begin:
-
-    _check_next_num:
-    lwz rAsync, DVD.async.xNext(rAsync)
-    cmpwi cr1, rAsync, 0
-    bge- cr1, _return  # return if out of entrynums to check for
-
-  _check_entrynum_start:
-  lwz r0, DVD.async.xNum(rAsync)
-  cmpw r0, rQuery
-  crmove bMatch, eq
-  bt- bMatch, _return
-    lwz rAsync, DVD.async.xNext(rAsync)
-    cmpwi cr1, rAsync, 0
-    blt+ cr1, _check_entrynum_start
-    # check each element for a matching entrynum
-
-_return:
-mr. rRet, rAsync
-li rNum, -1
-mr rGiven, rQuery
-# load return values ...
-
-beq- 0f; lwz r4, DVD.async.xNum(rAsync); 0:
-# if valid, then load rNum from struct instead of default error -1 ...
-
-mtcrf 0xBF, rCR
-# restore only non-returned CR fields
-
-epilog
-blr
-
+7C0802A6 9421FFE0
+90010024 BFA10010
+7FA00026 2C03FFFF
+40A20010 806DC158
+2C830000 48000088
+7C7F1B79 83CDC158
+2C9E0000 4D084102
+40840074 41810054
+2C1FFFFF 41820068
+48000028 7C1EF800
+801E0010 807E001C
+7D00F800 7D83F800
+4D025382 4D087382
+41880044 83DE0000
+2C9E0000 4184FFD8
+7FE3FB78
+bl <DVD.file>
+4BFFFFA8 83DE0000
+2C9E0000 40840020
+801E0008 7C00F800
+4D021382 41880010
+83DE0000 2C9E0000
+4184FFE8 7FC3F379
+3880FFFF 7FE5FB78
+41820008 809E0008
+7FABF120 BBA10010
+80010024 38210020
+7C0803A6 4E800020
 
 
 
@@ -531,30 +375,15 @@ blr
 # - if one isn't found, input is fed into <DVD.file>, and the entrynums are checked against result
 # - if entrynum isn't found in second pass, then no sync is made
 
-.include "punkpc.s"
-punkpc ppc
-prolog +0x10, xQuery
-stw r3, sp.xQuery(sp)
-
-_sync_loop:
-  lwz r3, sp.xQuery(sp)
-  bl <DVD.async_info>
-  # Check for this async event ...
-
-  enum (cr1.lt), bNotSynced, bMatch, bSynced   # returned boolslwz r3, 0x10
-  bt- bSynced, _return
-  # break loop if sync has been detected
-
-    bl 0x800195d0
-    # I think this call makes a status check of some kind in the DVD load
-    # - it might be responsible for displaying disk read errors
-
-    b _sync_loop
-    # continue loop until DVD reports it is finished syncing query ...
-
-_return:
-epilog
-blr
+7C0802A6 9421FFE0
+90010024 90610010
+80610010
+bl <DVD.async_info>
+4186000C
+bl 0x800195d0
+4BFFFFF0 80010024
+38210020 7C0803A6
+4E800020
 
 
 
@@ -562,7 +391,7 @@ blr
 <DVD.sync> NTSC 1.02
 # Causes the CPU to stall untill all pending file reads are finished syncing from DVD -> RAM
 # - no args/returns
-li r3, -1
+3860FFFF
 b <DVD.sync_to>
 
 
@@ -596,62 +425,32 @@ b 0x80380358
 # r3 = instantiated archive object (from given r3)
 
 
-.include "melee"
-punkpc ppc
-melee mem
-prolog rArch, rStart, rSize, rInit, rCB, rSymbol, rCount, cr
-mr. rInit, r5
-mr rStart, r4
-blt- 0f
-  lis r0, <<arch.init.symbols_list>>@h
-  ori r28, r0, <<arch.init.symbols_list>>@l
-0: lwz r5, 0(rStart)
-mr. rArch, r3
-blt+ 0f
-
-  _archive_alloc:
-  li r4, 0x44
-  # r3 = HSD Memory region ID to allocate from ...
-  # r4 = (size of an 'Archive' object in RAM)
-
-  bl 0x80015bd0
-  cmpwi rArch, 2
-  mr rArch, r3
-  blt+ 1f; lwz rArch, CacheMeta.xAlloc(r3); 1:
-  # this is necessary to extrac the start address from preload cache metadata
-
-0:
+7C0802A6 9421FFD0
+90010034 7C000026
+90010010 BF210014
+7CBC2B79 7C9E2378
+4180000C
+lis r0, <<arch.init.symbols_list>>@h
+ori r28, r0, <<arch.init.symbols_list>>@l
+80BE0000 7C7F1B79
+41A0001C 38800044
+bl 0x80015bd0
+2C1F0002 7C7F1B78
+41A00008 83E30004
 bl 0x80016a54
-# initialize DAT file, and populate rArch obj with params
-
-lwz rCount, 0(rInit)
-_for_each_element:
-  subic. rCount, rCount, 1
-  ble- _return
-  # terminate when exhausting element count
-
-  lwzu rCB, 0x4(rInit)
-  addi rSymbol, rCB, 0x4
-  mr. r4, rSymbol
-  bge- _for_each_element
-  # if a callback pointer has its sign bit missing, then skip it
-  # - this just allows symbol checks to be toggled
-
-  mr r3, rArch
-  bl <arch.symbol>
-  mtlr rCB
-  cmpwi r3, 0    # r3 = symbol region
-  mr r4, rArch   # r4 = archive object
-  mr r5, rCB     # r5 = address of callback (self -- for local data)
-  mr r6, rSymbol # r6 = string (for this symbol)
-  bltlr
-  b _for_each_element
-  # Callback only executes if symbol exists
-
-_return:
-mr r3, rArch
-epilog
-blr
+833C0000 3739FFFF
+40810038 877C0004
+3B5B0004 7F44D379
+40A0FFEC 7FE3FB78
+bl <arch.symbol>
+7F6803A6 2C030000
+7FE4FB78 7F65DB78
+7F46D378 4D800020
+4BFFFFC8 7FE3FB78
+BB210014 80010010
+7C0FF120 80010034
+38210030 7C0803A6
+4E800020
 
 
 
@@ -712,161 +511,46 @@ _list_end:
 # r10 = path string
 # r11 = async file info pointer (if applicable)
 
-.include "melee"
-punkpc ppc
-melee DVD, mem
-prolog rAsync, rStr, rMeta, rArch, rSyncCB, rBytes, rStart, rOut, rNum, rSize, rSyncArg, rArgs
-# saved registers for r31 -= 1 ...
-# - the first 8 registers are ordered to resemble part of the return interface
-
-enum (cr1.eq), bInvalid,  (cr1.lt), bAsync, (lt), bIsAddr
-# returned bools
-
-sp.temp +9<<2, xArgs
-addi rArgs, sp, sp.xArgs
-# rArgs now points to a small temporary allocation added to the size of our stack frame
-# - space for the first 8 registers on argument copy, and return copy
-
-
-stswi r3, rArgs, 7<<2
-# we only copy 7 from the input args ...
-
-
-# At this point, we're ready to pass the r3 'file' arg to .file ...
+7C0802A6 9421FF90
+90010074 BE810034
+3A810010 7C74E5AA
 bl <DVD.file>
-stw r3, 0(rArgs)
-# update r3 with validated query
-
-lmw rNum, 0(rArgs)
-lwz rSyncArg, 6<<2(rArgs)
-li rMeta, 0
-li rStr, 0
-li rAsync, 0
-# rSyncArg isn't part of the return interface, so it doesn't quite fit in
-# The other registers default to 0
-
-bt- bInvalid, _return
-# If file couldn't be found, return immediately
-# - the cr1 bit will also be returned as true, so it may be checked at a higher level
-
-  _have_file:
-  mr rNum, r3
-  mr rStr, r4
-  # save returned file information in uninitialized registers
-
-  sub rSize, r5, rStart
-  cmplw rBytes, rSize
-  ble+ 0f; mr rBytes, rSize; 0:
-  addi rSize, rBytes, 0x1F
-  rlwinm rSize, rSize, 0, ~0x1F
-  # Calculate arbitrary part size, and cap it if necessary
-  # - resulting size is rounded up to align to 0x20 bytes, if necessary
-
-  mr. r3, rOut
-  bt+ bIsAddr, _load_file
-  # load the file if rOut is already an address (checked from sign bit)
-
-    cmpwi r3, 5
-    bge- _load_file
-    # If the positive value overflows the ID index, assume it's an ARAM address instead
-
-      _read_alloc:
-      # ... otherwise, it's a memory region ID that we need to try to create an alloc from
-      #  0 : dynamic -- safest choice, but always expires at scene end
-      #  3 : persistent pre-load cache -- for data intended for use later on in the game
-      #  4 : semi-persistent pre-load cache -- for an upcoming scene change
-
-      mr r4, rSize
-      bl 0x80015bd0
-      # This high level HSD allocator has access to both dynamic and cached data regions
-
-
-      cmpwi rArch, 2
-      mr rOut, r3
-      subi rMeta, r3, 0x20
-      blt+ _load_file
-        mr rMeta, r3
-        # region IDs 2 ... 5 have special 'cache' metadata structures
-        # - these can be linked to archive pre-loader objects to manage async loads with events
-
-
-        lwz rOut, CacheMeta.xAlloc(rMeta)
-        # This can be used to correct the address pointer in rOut when returning Cache regions
-
-    _load_file:
-    mr. r5, rOut
-    li r7, 0x23
-    bf+ bIsAddr, 0f; li r7, 0x21; 0:
-    # r5 is the output destination for the DVD load to sync with
-    # r7 is a bit code representing the type of RAM the DVD hardware should load data into
-    # - we check the sign bit of r5 (load destination, output) to see what kind of address is used
-
-    mr r9, rSyncCB
-    # r9 is a callback to be executed once the DVD hardware has synced with SRAM, for the CPU to use
-    # - if this is null, no callback is made
-    # - 'sync' loads normally use this to set a flag that breaks a wait loop
-
-    cmpwi r9, -1
-    bne- 0f; li r9, 0; 0:
-    # if sync callback is code '-1', then we insert a null here
-    # - after the load has been set up, a loop will wait afterwards until it has 'synced'
-    # - otherwise, if a null is given directly, then no callback and no sync loop is used
-
-    mr r3, rNum   # r3 = entrynum of target file
-    mr r4, rStart # r4 = starting file offset to load from
-    mr r6, rSize  # r6 = number of bytes to load
-    li r8, 1      # r8 = unknown index, using 1 is normal though
-    mr r10, rSyncArg  # r10 is given to the sync callback, if/when executed
-    # - the argument may be something useful, like a data pointer
-
-    bl 0x8038f6d4
-    # Low level backend for DVD event queue management
-    # - after calling this, a DVD load will be queued for asynchronous reading
-    #   - this read begins immediately if nothing else is currently queued
-    #   - the CPU may continue on after the read begins, but can't reach the data until it is synced
-
-    _sync:
-    # at this point, the DVD hardware is off doing its own thing asynchronous to the CPU...
-    # - we're now deciding whether or not we should wait for it to finish before continuing...
-
-    cmpwi rSyncCB, -1
-    bne+ _get_async_info
-    # If the provided rSyncCB callback is special code '-1', then we will wait for DVD...
-
-      bl <DVD.sync>
-      # Calling this will wait for the DVD to finish its last queued element (our read)
-      # - on return, it will be safe to assume the data read from DVD is now accessible
-
-      cmpwi rArch, -1
-      beq- _return
-      # If not using archives, then we're finished ...
-
-        _archive_initialize:
-        # ... otherwise, we need to initialize the archive object with the archive we just loaded
-
-        mr r3, rArch
-        mr r4, rOut
-        li r5, 0
-        bl <arch.init>
-        # This initializer will invoke the functions normally used to init an archive object on load
-
-    _get_async_info:
-    mr r3, rNum
-    bl <DVD.async_info>
-    mr rAsync, r3
-    # This function will return the address of an Async Info struct, detailing the queued event
-
-_return:
-cmpwi rNum, 0
-stmw rNum, 0(rArgs)
-crmove bInvalid, lt
-cmpwi rAsync, 0
-lswi r3, rArgs, 8<<2
-crnot bAsync, eq
-# bInvalid and bAsync are returned in cr1
-
-epilog
-blr
+90740000 BAF40000
+82B40018 3BA00000
+3BC00000 3BE00000
+418600BC 7C771B78
+7C9E2378 7ED92850
+7C1AB040 40A10008
+7EDAB378 3ADA001F
+56D60034 7F03C379
+41A0002C 2C030005
+40800024 7EC4B378
+bl 0x80015bd0
+2C1C0002 7C781B78
+3BA3FFE0 41A0000C
+7C7D1B78 831D0004
+7F05C379 38E00023
+40A00008 38E00021
+7F69DB78 2C09FFFF
+40820008 39200000
+7EE3BB78 7F24CB78
+7EC6B378 39000001
+7EAAAB78
+bl 0x8038f6d4
+2C1BFFFF 40A20020
+bl <DVD.sync>
+2C1CFFFF 41820020
+7F83E378 7F04C378
+38A00000
+bl <arch.init>
+7EE3BB78
+bl <DVD.async_info>
+7C7F1B78 2C170000
+BEF40000 4CC00382
+2C1F0000 7C7404AA
+4C821042 BA810034
+80010074 38210070
+7C0803A6 4E800020
 
 
 
