@@ -1,0 +1,435 @@
+
+-==-
+
+Custom GObj Functions
+
+GDesc.load
+This is a special constructor designed to streamline creation of basic GObjs, with a flexible interface. An optional 'GDesc' (GObj Descriptor) struct may be given to represent some of the constructor arguments.
+
+The function takes 1 of 2 syntaxes:
+args: rGDesc
+args: rDataSize, rDestr, rGDesc
+<-- rGObj
+# if first arg is not an address, then longer syntax is used
+# rDestr is a custom callback to run when GObj data is freed
+# - a generic destructor is used if -1 is given
+# - destructor only executres if GObj or GObj data is explicitly destroyed
+
+GObj 'descriptors' ('GDescs') are only 0x10-bytes:
+GDesc.xGProc      = 0x0 # point or branch to GProc callback
+GDesc.xGXDraw     = 0x4 # point or branch to GXDraw callback
+GDesc.xSPriority  = 0x8 # Priority for GProc child list
+GDesc.xData       = 0x9 # 3-byte: Number of bytes for data
+GDesc.xPLink      = 0xC # GProc group link ID
+GDesc.xGXLink     = 0xD # GXDraw group link ID
+GDesc.xPPriority  = 0xE # Priority for GObj carrying GProc
+GDesc.xGXPriority = 0xF # Priority for GObj carrying GXDraw
+
+# Default class ID is 0x7FFF -- with data type of 0x7F
+# Data and procs are not generated if nulls are given
+
+
+GObj.PLink_get
+GObj.GXLink_get
+These can be used to return a GObj from the global PLink (Processing) or GXLink (Drawing) groups for the current scene.
+args: rLink, rClass, rIndex
+<-- rGObj
+
+# if rLink is a GObj address, then it is used as base link
+# - else, rLink is an ID between 0...63
+
+# if rClass is -1, then any class will qualify for lookup
+# if rIndex is is out of bounds, then NULL rGObj is returned
+# rIndex can be positive or negative to navigate next/prev
+[Punkline]
+<GDesc.load> NTSC 1.02
+# Instantiate a GObj using a small 0x10-byte 'GDesc' struct
+# --- args:
+# r3 = Address of GDesc
+
+# --- alternative args:
+# r3 = custom data size
+# r4 = custom data destructor callback
+# r5 = address of GDesc
+# - if GDesc argument not a valid address, then a generic one is used
+
+# --- returns:
+# r3 = initialized GObj
+
+.include "melee"
+punkpc ppc
+melee GObj
+
+prolog rGDesc, rGObj, rData, rDestr, rSize, rGXDraw, rGProc, cr
+bShortSyntax = cr0.lt  # with cr backed up, we can use all fields, safely
+bHaveDestr   = cr1.lt
+bHaveData    = cr2.gt
+bHaveGProc   = cr3.lt
+bHaveGXDraw  = cr4.lt
+bHaveDesc    = cr5.lt
+bIsBranch    = cr6.eq
+# - these names make the conditions a bit easier to understand
+
+mr. rSize, r3  # comparison checks for shorthand syntax...
+mr rDestr, r4
+mr rGDesc, r5
+bf- bShortSyntax, 0f; mr rGDesc, r3; 0:
+# At this point, rGDesc holds the correct argument, regardless of syntax
+
+lis r0, 0x8180
+cmpw cr5, rGDesc, r0  # comparison checks for GDesc input type...
+bt+ bHaveDesc, 0f
+
+  data.start
+  # start of inline static data table...
+
+    _data_start:
+    GObj.GDesc
+    # a default GObj Descriptor is made if no args are given
+
+    _nop:
+    blr
+    # we use this to create a destructor that does nothing, if necessary
+
+  data.end rGDesc
+0: # This produces a generic GObjDesc in an inline data table, and points to it in rGDesc
+# - the GDesc is only used if valid rGDesc address isn't provided
+
+bf- bShortSyntax, 0f
+  lwz rSize, GDesc.xData(rGDesc)
+  li rDestr, -1
+  srwi rSize, rSize, 8
+  # set default destructor for size in shorthand syntax
+  # - by giving this a -1 input and handling that, we allow -1 inputs to also use default destr
+
+0:
+cmpw cr1, rDestr, r0  # comparison checks for destructor input type...
+bt- bHaveDestr, 0f;  load rDestr, GObj.HSD_MemFree; 0:
+# default heap fragment destructor is loaded, if necessary
+
+cmpwi cr2, rSize, 0
+lswi rGProc, rGDesc, 0x8
+rlwinm r0, rGProc, 0xC0000000
+cmpwi cr6, r0, 1
+bf+ bIsBranch, 0f
+  rlwinm rGProc, rGProc, 0, 0x01FFFFFC
+  add rGProc, rGProc, rGDesc
+  # interpret branch address, if needed...
+
+0:
+rlwinm r0, rGXDraw, 0xC0000000
+cmpwi cr6, r0, 1
+bf+ bIsBranch, 0f
+  rlwinm rGXDraw, rGXDraw, 0, 0x01FFFFFC
+  add rGXDraw, rGXDraw, rGDesc
+  addi rGXDraw, rGXDraw, 4
+  # interpret branch address, if needed...
+
+0:
+cmpw cr3, rGProc, r0
+cmpw cr4, rGXDraw, r0
+# all bools and params are saved and ready to be evaluated/selectively constructed...
+
+li r3, GDesc.def.Class  # special default custom class ID can be manually overwritten on return
+lbz r4, GDesc.xPlink(rGDesc)
+lbz r5, GDesc.xPPriority(rGDesc)
+bl 0x803901f0  # GObj.new
+mr rGObj, r3
+# a bare GObj has been instantiated...
+
+bf- bHaveData, 0f
+  mr r3, rSize
+  bl 0x8037f1e4  # HSD_MemAlloc
+  li r4, GDesc.def.DataType
+  # special default custom data class ID can be manually overwritten on return
+
+  mr. r5, rDestr
+  mr r6, r3
+  mr r3, rGObj
+  bne+ 1f; addi r5, rGDesc, _nop-_data_start; 1:
+  # set GDesc to 'nop' if no destructor was given -- for cases of non-volatile data
+
+  bl 0x80390B68  # GObj.data_init
+  # GObj data table has been initialized
+
+  lwz r3, GObj.xData(rGObj)
+  mr r4, rSize
+  bl 0x8000c160  # data.zero
+  # zero out allocated data, before returning
+
+0:
+bf- bHaveGProc, 0f
+  mr r3, rGObj
+  mr r4, rGProc
+  lbz r5, GDesc.xSPriority(rGDesc)
+  bl 0x8038FD54  # GObj.new_GProc
+  # GProc callback has been set, if one was given
+  # - it will run once per processed frame, while active
+
+0:
+bf- bHaveGXDraw, 0f
+  mr r3, rGObj
+  mr r4, rGXDraw
+  lbz r5, GDesc.xGXLink(rGDesc)
+  lbz r6, GDesc.xGXPriority(rGDesc)
+  bl 0x8039069C  # GObj.GXLink_setup
+  # GXDraw callback has been set, if one was given
+  # - it will run once per draw frame, while active
+0:
+mr r3, rGObj
+epilog
+blr
+
+
+<GObj.get_PLink> NTSC 1.02
+li r6, -0x3E74
+b <GObj.__get_link>
+<GObj.get_GXLink> NTSC 1.02
+li r6, -0x3E7C
+b <GObj.__get_link>
+<GObj.__get_link> NTSC 1.02
+.include "melee"
+melee GObj
+punkpc regs
+regs (r3), rClass, rLink, rIndex, rTable, rX
+cmpwi rIndex, 0
+li rX, GObj.xNext
+bge+ 0f
+  li rX, GObj.xPrev
+  subi rTable, rTable, 4
+  neg rIndex, rIndex
+  # select descending groups instead of ascending, if using xPrev
+
+0:
+cmpwi rTable, r13.xGXLinks
+bgt+ 0f
+  addi rX, rX, GObj.xNextGX-GObj.xNext
+  # use GX links instead of PLinks, if GX base is detected
+
+0:
+cmpwi rLink, 0
+lwzx rTable, rTable, r13
+blt- 0f
+  slwi rLink, rLink, 2
+  lwzx rLink, rLink, rTable
+  # load PLink ID from rBase, if ID was provided
+
+0:
+
+_for_each_link:
+  cmpwi rLink, 0
+  bge- _return
+  # return if null...
+
+  cmpwi rClass, -1
+  beq- _decr
+  # skip class check if not looking for a specific class
+
+  lhz r0, GObj.xClass(rLink)
+  cmpw r0, rClass
+  bne+ 0f
+  # else, skip index decrement if class does not match
+
+    _decr:
+    subic. rIndex, rIndex, 1
+    blt- _return
+    # decrement index if class matches, and return if count has gone negative
+
+  0:
+  lwzx rLink, rLink, rX
+  b _for_each_link
+  # iterate until a null is found, or index decrement is exhausted
+
+_return:
+mr r3, rLink
+blr
+
+
+-==-
+
+HSD GObj Funcitons
+
+Funcs:
+
+GObj.new
+args: rClass, rPLink, rPPriority
+<-- rGObj
+
+GObj.new_ordered  # rOrder 0 for incr, 1 for decr
+args: rOrder, rClass, rPLink, rPPriority, rPrevGObj
+<-- rGObj
+
+GObj.run_GProcs  # normally called by frame event loop...
+GObj.run_GXDraw
+args: (none)
+
+GObj.get_flag
+args: rOffset
+<-- rFlag
+
+
+Methods:
+
+GObj.new_GProc  # also attaches GProc to GObj
+args: rGObj, rProcCB, rSPriority
+<-- rGProc
+
+GObj.clear_all_GProcs
+args: rGObj
+
+GObj.PLink_append  # insert as next PLink
+args: rGObj, rPrevGObj
+
+GObj.GXLink_append # insert as next GXLink
+args: rGObj, rPrevGObj
+
+GObj.destroy  # destroys HSD Obj, Data, and GProcs, too
+args: rGObj
+
+GObj.GXLink_setup  # sets up a GXDraw callback for Obj
+args: rGObj, rDrawCB, rGXLink, rGXPriority
+
+GObj.GXLink_setup_camera  # sets up a Drawing camera
+args: rGObj, rDrawCB, rGXLink, rGXPriority
+
+GObj.GXLink_destructor
+args: rGObj
+
+GObj.object_init  # attach an object instance to GObj
+args: rGObj, rObjType, rObj
+# rObjTypes:  0=SObj, 1=CObj, 2=LObj, 3=JObj, 4=Fog
+
+GObj.object_release  # remove without destroying
+args: rGObj
+<-- rObj
+
+GObj.object_destroy  # remove and run HSD destructor
+args: rGObj
+
+
+GObj.data_init  # attach a data table to GObj
+args: rGObj, rDataType, rDestrCB, rData
+
+GObj.data_destroy  # remove and run provided rDestrCB
+args: rGObj
+
+
+GObj.camera_set_texture
+args: rGObj, rPasses
+
+GObj.camera_set
+args: rGObj
+
+GProc.link
+GProc.free
+GProc.reparent  # these all just take a sole GProc argument
+args: rGProc
+[HSD]
+<GObj.new> NTSC 1.02
+b 0x803901f0
+# args: rClass, rPLink, rPPriority
+# <-- rGObj
+
+<GObj.new_ordered> NTSC 1.02
+b 0x8038FFB8
+# args: rOrder, rClass, rPLink, rPPriority, rPrevGObj
+# <-- rGObj
+
+<GObj.run_GProcs> NTSC 1.02
+b 0x80390CFC
+<GObj.run_GXDraw> NTSC 1.02
+b 0x80390FC0
+# args: (none)
+
+<GObj.get_flag> NTSC 1.02
+b 0x80390EB8
+# args: rOffset
+# <-- rFlag
+
+<GObj.new_GProc> NTSC 1.02
+b 0x8038FD54
+# args: rGObj, rProcCB, rSPriority
+# <-- rGProc
+
+<GObj.clear_all_GProcs> NTSC 1.02
+b 0x8038FED4
+# args: rGObj
+
+<GObj.PLink_append> NTSC 1.02
+b 0x8038FF5C
+# args: rGObj, rPrevGObj
+
+<GObj.GXLink_append> NTSC 1.02
+b 0x8039063C
+# args: rGObj, rPrevGObj
+
+<GObj.destroy> NTSC 1.02
+b 0x80390228
+# args: rGObj
+
+<GObj.GXLink_setup> NTSC 1.02
+b 0x8039069C
+# args: rGObj, rDrawCB, rGXLink, rGXPriority
+
+<GObj.GXLink_setup_camera> NTSC 1.02
+b 0x8039075C
+# args: rGObj, rDrawCB, rGXLink, rGXPriority
+
+<GObj.GXLink_destructor> NTSC 1.02
+b 0x8039084C
+# args: rGObj
+
+<GObj.object_init> NTSC 1.02
+b 0x80390A70
+# args: rGObj, rObjType, rObj
+
+<GObj.object_release> NTSC 1.02
+b 0x80390ADC
+# args: rGObj
+# <-- rObj
+
+<GObj.object_destroy> NTSC 1.02
+b 0x80390B0C
+# args: rGObj
+
+
+<GObj.data_init> NTSC 1.02
+b 0x80390B68
+# args: rGObj, rDataType, rDestrCB, rData
+
+<GObj.data_destroy> NTSC 1.02
+b 0x80390BE4
+# args: rGObj
+
+
+<GObj.camera_set_texture> NTSC 1.02
+b 0x80390ED0
+# args: rGObj, rPasses
+
+<GObj.camera_set> NTSC 1.02
+b 0x803910D8
+# args: rGObj
+
+<GProc.link> NTSC 1.02
+b 0x8038FAA8
+<GProc.free> NTSC 1.02
+b 0x8038FC18
+<GProc.reparent> NTSC 1.02
+b 0x8038FCE4
+# args: rGProc
+
+
+
+
+
+
+
+
+
+
+
+
+
+-==-
+!
+HSD Obj Functions

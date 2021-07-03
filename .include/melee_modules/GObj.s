@@ -5,6 +5,16 @@ melee HSDObj
 
 # --- Macros:
 
+# GDesc Defaults:
+GDesc.def.Class      = 0x7FFF
+GDesc.def.Data       = 0
+GDesc.def.DataType   = 0x7F
+GDesc.def.PLink      = 0x18
+GDesc.def.PPriority  = 0x10
+GDesc.def.SPriority  = 0
+GDesc.def.GXLink     = 0x13
+GDesc.def.GXPriority = 0x10
+
 .macro GObj.GDesc/*
   Creates GObjs that can be initialized with a starting GProc/GXDraw function, and a data table
 
@@ -45,6 +55,7 @@ melee HSDObj
   .long 0  # else null
 .endm
 
+
 # --- Symbols:
 # Descriptor format:
 GDesc.xGProc      = 0x0# point or branch to GObj GProc callback
@@ -79,12 +90,11 @@ GObj.xDestructor = 0x30 # to the destructor callback, for freeing data table on 
 
 # Type IDs:
 GObj.type.None = -1
+GObj.type.SObj = 0
 GObj.type.CObj = 1
 GObj.type.LObj = 2
 GObj.type.JObj = 3
 GObj.type.Fog  = 4
-GObj.class.custom = 0x70
-# this class ID means nothing, but can be used to identify custom GObjs from normal ones
 
 
 # --- GProc Instance structure:
@@ -97,11 +107,6 @@ GProc.xGObj     = 0x10  # points back to the GObj using this GProc
 GProc.xCallback = 0x14  # points to the callback assigned to this GProc
 GProc.mDisable  = 0x40  # a mask for disabling or enabling a GProc, using its 'flags'
 
-# --- NTSC 1.02 Callback Addresses
-GObj.GProc.JObjAnimate = 0x8022eae0
-GObj.GXDraw.JObjDisplay = 0x80391070
-GObj.HSD_MemAlloc = 0x8037f1e4
-GObj.HSD_MemFree = 0x8037f1b0
 
 # --- NTSC 1.02 Globals
 # r13 offsets:
@@ -116,6 +121,7 @@ r13.xNextGProc      = -0x3e70 # points to the next GProc in prioritized event qu
 r13.xThisGProcGObj  = -0x3e84 # points to the current GObj (from perspective of GProc)
 r13.xThisGXDrawCObj = -0x3e88 # points to the current CObj (from perspective of GXDraw)
 r13.xThisGXDrawGObj = -0x3e8c # points to the current GObj (from perspective of GXDraw)
+r13.xGObj_HSD_DestructorList = -0x3e90  # a list of destructor callbacks indexed by obj type
 
 
 # --- unique GObj symbols:
@@ -124,16 +130,15 @@ r13.xThisGXDrawGObj = -0x3e8c # points to the current GObj (from perspective of 
 GXLink.xCameras = 64<<2
 # the camera list can be accessed from GXLink tables
 
+GObj.class.default = GDesc.def.Class
+GObj.PLink.default = GDesc.def.PLink
+PLink.xDefault = GObj.PLink.default<<2
+# the default custom PLink -- for generic GObjs
+
 GObj.class.fighter = 4
 GObj.PLink.fighter = 8
 PLink.xFighter = GObj.PLink.fighter<<2
 # only in Melee scenes -- this PLink is used for other purposes in different scenes
-
-
-GObj.class.stage = 3
-GObj.PLink.stage = 5
-PLink.xStage = GObj.PLink.stage<<2
-# needs confirmation -- possibly related to stage polygons that animate ecb verts
 
 GObj.class.item = 6
 GObj.PLink.item = 9
@@ -155,5 +160,89 @@ GObj.PLink.main_menu_text = 8
 PLink.xMainMenuText = GObj.PLink.main_menu_text<<2
 # only on main menu -- the descriptive text at the bottom of the screen
 
+
+# --- NTSC 1.02 Callback Addresses
+GObj.GProc.JObjAnimate     = 0x8022eae0
+GObj.GXDraw.JObjDisplay    = 0x80391070
+# args: rGObj
+
+GObj.HSD_MemAlloc          = 0x8037f1e4
+# args: rSize
+# <-- rAlloc
+
+GObj.HSD_MemFree           = 0x8037f1b0
+# args: rAlloc
+
+
+# --- NTSC 1.02 Function Addresses
+GObj.new                 = 0x803901f0
+# args: rClass, rPLink, rPPriority
+# <-- rGObj
+
+GObj.new_ordered         = 0x8038FFB8
+# args: rOrder, rClass, rPLink, rPPriority, rPrevGObj
+# <-- rGObj
+
+GObj.run_GProcs          = 0x80390CFC
+GObj.run_GXDraw          = 0x80390FC0
+# args: (none)
+
+GObj.get_flag            = 0x80390EB8
+# args: rOffset
+# <-- rFlag
+
+GObj.new_GProc           = 0x8038FD54
+# args: rGObj, rProcCB, rSPriority
+# <-- rGProc
+
+GObj.clear_all_GProcs    = 0x8038FED4
+# args: rGObj
+
+GObj.PLink_append        = 0x8038FF5C
+# args: rGObj, rPrevGObj
+
+GObj.GXLink_append       = 0x8039063C
+# args: rGObj, rPrevGObj
+
+GObj.destroy                = 0x80390228
+# args: rGObj
+
+GObj.GXLink_setup        = 0x8039069C
+# args: rGObj, rDrawCB, rGXLink, rGXPriority
+
+GObj.GXLink_setup_camera = 0x8039075C
+# args: rGObj, rDrawCB, rGXLink, rGXPriority
+
+GObj.GXLink_destructor   = 0x8039084C
+# args: rGObj
+
+GObj.object_init       = 0x80390A70
+# args: rGObj, rObjType, rObj
+
+GObj.object_release      = 0x80390ADC
+# args: rGObj
+# <-- rObj
+
+GObj.object_destroy      = 0x80390B0C
+# args: rGObj
+
+
+GObj.data_init           = 0x80390B68
+# args: rGObj, rDataType, rDestrCB, rData
+
+GObj.data_destroy        = 0x80390BE4
+# args: rGObj
+
+
+GObj.camera_set_texture  = 0x80390ED0
+# args: rGObj, rPasses
+
+GObj.camera_set          = 0x803910D8
+# args: rGObj
+
+GProc.link               = 0x8038FAA8
+GProc.free               = 0x8038FC18
+GProc.reparent           = 0x8038FCE4
+# args: rGProc
 
 .endif
