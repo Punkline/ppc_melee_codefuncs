@@ -99,6 +99,567 @@ lbz	r0, 0x0002 (r3)
 
 
 
+<JObj.select_from_root> NTSC 1.02
+# r3 = root JObj (or member of family)
+# r4 = ID to select
+.include "melee"
+punkpc ppc
+melee HSDObj
+prolog +0x20, xReturns
+mr r5, r3
+_for_each_JObj:
+  cmpwi r5, 0
+  bge- 0f
+  mr r3, r5
+  lwz r5, JObj.xParent(r3)
+  b _for_each_JObj
+
+0: mr r5, r4
+addi r4, sp, sp.xReturns
+li r6, -1
+crclr 6
+bl 0x80011e24
+lwz r3, sp.xReturns(sp)
+epilog
+blr
+
+
+
+
+-==-
+
+CSS TESTS - DVD Loading Safety
+While hovering over icon in CSS...
+
+DUp = load "GmPause.usd" (with no safety logic in place)
+DDown = load "GmPause.usd" ONLY if there is room in heap
+
+DRight = load "test.hax" ONLY if file exists
+DLeft = load "test.hax" ONLY if file exists, and there is room
+
+All loads are made redundantly using OSHeap space
+Icon textures will transform into a visual representation:
+- repeated loads will eventually exhaust free bytes available
+- if a file is loaded while out of space, the game will freeze
+- if a file name isn't found in FST, it is safely avoided in all cases
+[Punkline]
+<CSS.icon_select_DDown> NTSC 1.02
+.include "melee"
+punkpc ppc
+melee DVD, mem
+prolog rData, rSFX
+enum (0x80), +1, SFX.true, SFX.false
+
+  data.start
+    .asciz "GmPause.usd"
+    align 2
+  data.end rData
+  mr r3, rData
+  li rSFX, SFX.false
+  bl <DVD.file>
+  bt- DVD.file.bInvalid, _play_sfx
+  # fail if file isn't found for some reason
+
+    mr r4, DVD.file.rBytes
+    # else, get byte size from file system table
+
+    li r3, 0
+    bl <mem.info>
+    bf- mem.info.bIsAvailable, _play_sfx
+    # fail if requested bytes aren't available
+
+      li rSFX, SFX.true
+      mr r3, rData
+      li r4, 0
+      bl <DVD.read>
+      # else, commit to load
+
+  _play_sfx:
+  mr r3, rSFX
+  bl <SFX.play>
+  bl <CSS.icon_display_RAM>
+
+epilog
+blr
+
+
+<CSS.icon_select_DUp> NTSC 1.02
+.include "melee"
+punkpc ppc
+melee DVD, mem
+prolog rData
+enum (0x80), +1, SFX.true, SFX.false
+
+  data.start
+    .asciz "GmPause.usd"
+    align 2
+  data.end rData
+  li r3, SFX.true
+  bl <SFX.play>
+  # play SFX first so that we can hear it even on failure
+
+  mr r3, rData
+  li r4, 0
+  bl <DVD.read>
+  bl <CSS.icon_display_RAM>
+
+epilog
+blr
+
+
+<CSS.icon_select_DLeft> NTSC 1.02
+.include "melee"
+punkpc ppc
+melee DVD, mem
+prolog rData, rSFX
+enum (0x80), +1, SFX.true, SFX.false
+
+  data.start
+    .asciz "test.hax"
+    align 2
+  data.end rData
+  mr r3, rData
+  li rSFX, SFX.false
+  bl <DVD.file>
+  bt- DVD.file.bInvalid, _play_sfx
+    mr r4, DVD.file.rBytes
+    li r3, 0
+    bl <mem.info>
+    bf- mem.info.bIsAvailable, _play_sfx
+      li rSFX, SFX.true
+      mr r3, rData
+      li r4, 0
+      bl <DVD.read>
+
+  _play_sfx:
+  mr r3, rSFX
+  bl <SFX.play>
+  bl <CSS.icon_display_RAM>
+epilog
+blr
+
+
+<CSS.icon_select_DRight> NTSC 1.02
+.include "melee"
+punkpc ppc
+melee DVD, mem
+prolog rData, rSFX
+enum (0x80), +1, SFX.true, SFX.false
+
+  data.start
+    .asciz "test.hax"
+    align 2
+  data.end rData
+  li rSFX, SFX.true
+  mr r3, rData
+  li r4, 0
+  bl <DVD.read>
+  bf- DVD.read.bInvalid, _play_sfx
+    li rSFX, SFX.false
+
+  _play_sfx:
+  mr r3, rSFX
+  bl <SFX.play>
+  bl <CSS.icon_display_RAM>
+
+epilog
+blr
+
+
+
+
+
+
+<CSS.icon_display_RAM> NTSC 1.02
+# takes no args
+# - simply converts all icons in CSS into a display of 256x256 RGBA pixels from end of heap
+#   - this reveals the data in the heap by representing words as uncompressed pixels
+#   - all free space is zeroed out on first display
+
+.include "melee"
+punkpc ppc
+melee HSDObj, mem
+prolog rIcon, rCount, rFrag, +0x4, xReturn
+
+Icon.start = 0x803f0b24
+enum.enum_conc "Icon.",, (0), /*
+*/ +1, xPortraitID, xNametagID, xSelectable, xIconID, xIconID_copy,/*
+*/ (8), +4, xUnkID, +0x10, xBox, +0, size
+# icon struct offsets
+
+r13.xCSSJObjRoot    = -0x49E0
+# used for fetching JObjs from skeleton root
+
+load rIcon, (Icon.start-Icon.size)
+li rCount, 25
+li rFrag, 0
+
+_for_each_icon_JObj:
+  subic. rCount, rCount, 1
+  addi rIcon, rIcon, Icon.size
+  blt- _return
+
+    _call:
+    lwz r3, r13.xCSSJObjRoot(r13)
+    lbz r4, Icon.xIconID_copy(rIcon)
+    bl <JObj.select_from_root>
+    regs rJObj, rDObj, rMObj, rTObj, rIDesc, rIArray
+    lwz rDObj, JObj.xDObj(rJObj)
+    lwz rDObj, DObj.xSibling(rDObj)
+    lwz rMObj, DObj.xMObj(rDObj)
+    lwz rTObj, MObj.xTObj(rMObj)
+    lwz rIDesc, TObj.xImageDesc(rTObj)
+    # image descriptor in 'rIDesc'
+
+    lhz r0, ImageDesc.xWidth(rIDesc)
+    cmpwi r0, 256
+    beq- _return
+
+      # This only runs when it detects un-mutated images
+      cmpwi rFrag, 0
+      bne+ 1f
+        li r3, 0
+        li r4, 0
+        bl <mem.info>
+        # this returns mem.info.* registers...
+
+        add rFrag, mem.info.rStart, mem.info.rSize
+        subis rFrag, rFrag, 25<<2
+        # rFrag now points to a place towards the end of the largest heap fragment
+        # - each icon will represent 1/16th of a megabyte
+
+        mr r3, mem.info.rStart
+        mr r4, mem.info.rSize
+        bl <data.zero>
+        # it is also zeroed out, so unloaded bytes display as black pixels with 0% alpha
+        # - the line where pixels appear vs disappear represents the remaining heap fragment
+
+        b _call
+        # this sets up rFrag in cases where memory needs to be parsed, and retries call
+
+      1:
+      stw rFrag, ImageDesc.xPixels(rIDesc)
+      lwz rIArray, TObj.xImageArray(rTObj)
+      cmpwi rIArray, 0
+      bge- 0f; stw rFrag, 0x0(rIArray); 0:
+      addis rFrag, rFrag, 1<<2
+      # update pixel data pointer
+      # - this now points to a 256x256 block of words towards the end of the heap
+
+      li r0, 256
+      sth r0, ImageDesc.xWidth(rIDesc)
+      sth r0, ImageDesc.xHeight(rIDesc)
+      # update height/width
+
+      li r0, 6
+      stw r0, ImageDesc.xType(rIDesc)
+      # change image type to uncompressed RGBA8 (type 6)
+
+      b _for_each_icon_JObj
+
+_return:
+epilog
+blr
+
+
+-==-
+
+
+CSS TESTS - Async visualization
+While hovering over icon in CSS...
+
+DUp = sync load file part from DVD into icon texture
+DDown = async load file part from DVD into icon texture
+
+DRight = toggle continuous async load file data through textures
+DLeft = toggle continuous async copy sound data from ARAM
+
+- corruption of image data shows files being loaded, but will otherwise just look like noisy pixels.
+- continuous async streams are propogated by their own sync callbacks, requiring no further injections
+[Punkline]
+
+<CSS.icon_select_DUp> NTSC 1.02
+# --- BASIC LOAD TEST
+# - dpad up will cause 0x10000 bytes to be loaded, and the CPU will have to wait for it
+# - repeatedly testing this may give you a fealing for what the DVD sync time overhead is like
+
+.include "melee"
+punkpc ppc
+melee HSDObj, mem, DVD
+prolog
+dimsize = 64
+bytesize = 0x10000
+type = 6
+regs (r3), +1, rIcon, rMPad, rIconID, rHand, rHandJObj, rPlayerID, rStart, rRoot
+
+mr r3, rIconID
+li r4, type
+load r5, bytesize
+li r6, dimsize
+# r3 = ordered ID (from topleft to bottom right of CSS icons)
+# r4 = image type
+# r5 = byte size
+# r6 = square pixel dims (r6xr6)
+
+bl <CSS.icon_set_image_to_alloc>
+regs (r3), rFile, rAlloc, rStart, rBytes, rSyncCB, rSyncArg
+load rBytes, bytesize
+# r3 = rFile
+# r4 = rAlloc
+# r5 = rStart
+# r6 = rBytes
+
+
+# in addition to creating a sync load, we will also cancel all async streams
+# - this is done by setting all non-0 byte counters to 1, to make the next iter the last iter
+
+regs (rSyncCB), rNext, rThis
+enum.enum_conc "meta.",, (0), +4, xPrev, xNext, xAlloc, xSize, xCount, xNum, xOffset
+# we extend into the unused second half of the header
+
+subi rThis, rAlloc, 0x20
+mr rNext, rThis
+# we will just parse through the cycling list by using rThis as a terminating sentinal
+
+0:
+  lbz r0, meta.xCount(rNext)
+  cmpwi r0, 0
+  beq+ 1f
+  # if the count is already 0, then this allocation is not being streamed to at the moment...
+
+    li r0, 1
+    stb r0, meta.xCount(rNext)
+    # otherwise, we want to cancel it by setting it to 1, so the next decrement goes back to 0
+
+  1:
+  lwz rNext, meta.xNext(rNext)
+  cmpw rThis, rNext
+  bne+ 0b
+  # continue to the next allocation, if we haven't looped all the way through the cycling list...
+
+li rSyncCB, 0
+li rSyncArg, 0
+# finally, we commit to the async call we were setting up
+# - in this case, we're not using any sync callbacks, so we just set those args to null
+
+
+bl <DVD.read_part>
+epilog
+blr
+
+
+
+
+<CSS.icon_select_DDown> NTSC 1.02
+# --- ASYNC LOAD TEST
+# - dpad down will also load 0x10000 bytes from disk, but without stalling the CPU
+# - once the DVD has finished syncing, the data will be available for the CPU
+#   - until then however, the CPU cannot access the loaded data
+
+.include "melee"
+punkpc ppc
+melee HSDObj, mem, DVD
+prolog
+dimsize = 64
+bytesize = 0x10000
+type = 6
+regs (r3), rIcon, rMPad, rIconID, rHand, rHandJObj, rPlayerID, rStart, rRoot
+
+mr r3, rIconID
+li r4, type
+load r5, bytesize
+li r6, dimsize
+bl <CSS.icon_set_image_to_alloc>
+regs (r3), rFile, rAlloc, rStart, rBytes, rSyncCB, rSyncArg
+load rBytes, bytesize
+li rSyncCB, 0
+li rSyncArg, 0
+# - in this case, we're not using any sync callbacks, so we just set those args to null
+
+bl <DVD.read_part_async>
+# call async with no sync callback, so we can just see the data get loaded into an image ...
+
+epilog
+blr
+
+
+
+
+
+<CSS.icon_select_DLeft> NTSC 1.02
+# --- DVD ASYNC STREAM TEST
+# - dpad left is the same as dpad down, but repeats 256 times
+
+.include "melee"
+punkpc ppc
+melee HSDObj, mem, DVD
+prolog
+dimsize = 64
+bytesize = 0x10000
+type = 6
+regs (r3), rIcon, rMPad, rIconID, rHand, rHandJObj, rPlayerID, rStart, rRoot
+
+mr r3, rIconID
+li r4, type
+load r5, bytesize
+li r6, dimsize
+bl <CSS.icon_set_image_to_alloc>
+regs (r3), rFile, rAlloc, rStart, rBytes, rSyncCB, rSyncArg
+load rBytes, bytesize
+
+
+data.start
+# start of in-line data table...
+
+  _sync_callback:
+  # This executes when a file part has finished asynchronously loading...
+
+  prolog rMeta
+  enum.enum_conc "meta.",, (0), +4, xPrev, xNext, xAlloc, xSize, xCount, xNum, xOffset
+  # we extend into the unused second half of the header
+
+  mr rMeta, DVD.sync.rSyncArg
+  lbz r3, meta.xCount(rMeta)
+  subic. r3, r3, 1
+  stb r3, meta.xCount(rMeta)
+  beq- _return_from_cb
+  # this 'stream' repeats itself 256 times in the same allocation (over 256 async reads)
+  # - the iterations are not throttled, but may be delayed by other async demands
+  # - the CPU will not stall while streaming, and multiple streams can be created
+
+    lwz rFile, meta.xNum(rMeta)
+    bl <DVD.file>
+    # we saved the entrynum for rFile, so this will be a near-instant lookup for creating 'rMax'
+
+    regs (r3), rMax, rCheck
+    load rBytes, bytesize
+    sub rMax, DVD.file.rBytes, rBytes
+    lwz rStart, meta.xOffset(rMeta)
+    add rCheck, rStart, rBytes
+    cmpw rCheck, rMax
+    blt+ 0f
+      li rStart, 0
+      mr rCheck, rBytes
+    0: stw rCheck, meta.xOffset(rMeta)
+    # update offset for next iteration
+    # r3 and r4 are now free to use again
+
+    lwz rFile, meta.xNum(rMeta)
+    lwz rAlloc, meta.xAlloc(rMeta)
+    mr rSyncArg, rMeta
+    data.get rSyncCB
+    # get address of _sync_callback: in rSyncCB
+
+    bl <DVD.read_part_async>
+
+  _return_from_cb:
+  epilog
+  blr
+data.end rSyncCB
+# put address of in-line callback in rSyncCB argument, to pass to async read
+
+subi rSyncArg, rAlloc, 0x20
+# pass 'rMeta' along to callback through the argument that appears in DVD.sync.rSyncArg
+
+lbz r0, meta.xCount(rSyncArg)
+cmpwi r0, 0
+bne- _return
+# skip async assignment if there's already one in progress for this allocation...
+
+
+  stw rFile, meta.xNum(rSyncArg)
+  li r0, 0
+  stw rStart, meta.xOffset(rSyncArg)
+  stb r0, meta.xCount(rSyncArg)
+  # else, update params for sync callback to use
+
+bl <DVD.read_part_async>
+# once DVD syncs, callback will be executed
+
+_return:
+epilog
+blr
+
+
+
+<CSS.icon_select_DRight> NTSC 1.02
+
+# --- ARAM ASYNC STREAM TEST
+# - dpad right is the same as dpad left, but uses ARAM DMAs instead of DVD
+
+.include "melee"
+punkpc ppc
+melee HSDObj, mem, DVD
+prolog
+dimsize = 64
+bytesize = 0x10000
+type = 6
+regs (r3), rIcon, rMPad, rIconID, rHand, rHandJObj, rPlayerID, rStart, rRoot
+
+mr r3, rIconID
+li r4, type
+load r5, bytesize
+li r6, dimsize
+bl <CSS.icon_set_image_to_alloc>
+
+regs (r3), rDest, rSource, rLength, rSyncCB, rSyncArg
+mr rDest, r4
+li rSource, 0  # byte 0 of ARAM
+subi rSyncArg, rDest, 0x20
+load rLength, bytesize
+data.start
+
+  _sync_callback:
+  # for ARAM this time, not DVD...
+
+  prolog rMeta
+  enum.enum_conc "meta.",, (0), +4, xPrev, xNext, xAlloc, xSize, xCount, xNum, xOffset
+  # we extend into the unused second half of the header
+
+
+  mr rMeta, r3
+  lbz r3, meta.xCount(rMeta)
+  subic. r3, r3, 1
+  stb r3, meta.xCount(rMeta)
+  beq- _return
+
+    lwz rSource, meta.xOffset(rMeta)
+    load rLength, bytesize
+    add r3, rSource, rLength
+    lis r0, 0x30
+    cmpw r3, r0
+    blt+ 0f; li r3, 0; 0:
+    # - first 3 mb of ARAM is usually populated, while other parts may be blank
+    # - we just display the beginning so that it's obvious that the icons are streaming
+
+    stw r3, meta.xOffset(rMeta)
+    # the offset for next iteration is updated
+
+    mr rSyncArg, rMeta
+    addi rDest, rMeta, 0x20
+    data.get rSyncCB
+    bl <data.copy_async>
+
+  _return:
+  epilog
+  blr
+
+data.end rSyncCB
+# put address of in-line callback in rSyncCB argument, to pass to async read
+
+li r0, 0
+stw rLength, meta.xOffset(rSyncArg)
+stb r0, meta.xCount(rSyncArg)
+# update params for sync callback to use
+
+bl <data.copy_async>
+# once DVD syncs, callback will be executed
+
+epilog
+blr
+
+
+
 <CSS.icon_set_image_to_alloc> NTSC 1.02
 # replace texture, and return DVD entrynum
 # - this is part of a test that gets called from multiple other functions...
@@ -327,547 +888,5 @@ prolog rIDesc2, rIDesc1, rIDesc0, rIDesc, rTlut, rTlutType, rThis, rTObj, rCount
     # else, update palette
 
 _return:
-epilog
-blr
-
-
-
-<JObj.select_from_root> NTSC 1.02
-# r3 = root JObj (or member of family)
-# r4 = ID to select
-.include "melee"
-punkpc ppc
-melee HSDObj
-prolog +0x20, xReturns
-mr r5, r3
-_for_each_JObj:
-  cmpwi r5, 0
-  bge- 0f
-  mr r3, r5
-  lwz r5, JObj.xParent(r3)
-  b _for_each_JObj
-
-0: mr r5, r4
-addi r4, sp, sp.xReturns
-li r6, -1
-crclr 6
-bl 0x80011e24
-lwz r3, sp.xReturns(sp)
-epilog
-blr
-
-
-
-<CSS.icon_display_RAM> NTSC 1.02
-# takes no args
-# - simply converts all icons in CSS into a display of 256x256 RGBA pixels from end of heap
-#   - this reveals the data in the heap by representing words as uncompressed pixels
-#   - all free space is zeroed out on first display
-
-.include "melee"
-punkpc ppc
-melee HSDObj, mem
-prolog rIcon, rCount, rFrag, +0x4, xReturn
-
-Icon.start = 0x803f0b24
-enum.enum_conc "Icon.",, (0), /*
-*/ +1, xPortraitID, xNametagID, xSelectable, xIconID, xIconID_copy,/*
-*/ (8), +4, xUnkID, +0x10, xBox, +0, size
-# icon struct offsets
-
-r13.xCSSJObjRoot    = -0x49E0
-# used for fetching JObjs from skeleton root
-
-load rIcon, (Icon.start-Icon.size)
-li rCount, 25
-li rFrag, 0
-
-_for_each_icon_JObj:
-  subic. rCount, rCount, 1
-  addi rIcon, rIcon, Icon.size
-  blt- _return
-
-    _call:
-    lwz r3, r13.xCSSJObjRoot(r13)
-    lbz r4, Icon.xIconID_copy(rIcon)
-    bl <JObj.select_from_root>
-    regs rJObj, rDObj, rMObj, rTObj, rIDesc, rIArray
-    lwz rDObj, JObj.xDObj(rJObj)
-    lwz rDObj, DObj.xSibling(rDObj)
-    lwz rMObj, DObj.xMObj(rDObj)
-    lwz rTObj, MObj.xTObj(rMObj)
-    lwz rIDesc, TObj.xImageDesc(rTObj)
-    # image descriptor in 'rIDesc'
-
-    lhz r0, ImageDesc.xWidth(rIDesc)
-    cmpwi r0, 256
-    beq- _return
-
-      # This only runs when it detects un-mutated images
-      cmpwi rFrag, 0
-      bne+ 1f
-        li r3, 0
-        li r4, 0
-        bl <mem.info>
-        # this returns mem.info.* registers...
-
-        add rFrag, mem.info.rStart, mem.info.rSize
-        subis rFrag, rFrag, 25<<2
-        # rFrag now points to a place towards the end of the largest heap fragment
-        # - each icon will represent 1/16th of a megabyte
-
-        mr r3, mem.info.rStart
-        mr r4, mem.info.rSize
-        bl <data.zero>
-        # it is also zeroed out, so unloaded bytes display as black pixels with 0% alpha
-        # - the line where pixels appear vs disappear represents the remaining heap fragment
-
-        b _call
-        # this sets up rFrag in cases where memory needs to be parsed, and retries call
-
-      1:
-      stw rFrag, ImageDesc.xPixels(rIDesc)
-      lwz rIArray, TObj.xImageArray(rTObj)
-      cmpwi rIArray, 0
-      bge- 0f; stw rFrag, 0x0(rIArray); 0:
-      addis rFrag, rFrag, 1<<2
-      # update pixel data pointer
-      # - this now points to a 256x256 block of words towards the end of the heap
-
-      li r0, 256
-      sth r0, ImageDesc.xWidth(rIDesc)
-      sth r0, ImageDesc.xHeight(rIDesc)
-      # update height/width
-
-      li r0, 6
-      stw r0, ImageDesc.xType(rIDesc)
-      # change image type to uncompressed RGBA8 (type 6)
-
-      b _for_each_icon_JObj
-
-_return:
-epilog
-blr
-
-
-
--==-
-
-CSS TESTS - Async visualization
-While hovering over icon in CSS...
-
-DUp = sync load file part from DVD into icon texture
-DDown = async load file part from DVD into icon texture
-
-DRight = toggle continuous async load file data through textures
-DLeft = toggle continuous async copy sound data from ARAM
-
-- corruption of image data shows files being loaded, but will otherwise just look like noisy pixels.
-- continuous async streams are propogated by their own sync callbacks, requiring no further injections
-[Punkline]
-
-<CSS.icon_select_DUp> NTSC 1.02
-# --- BASIC LOAD TEST
-# - dpad up will cause 0x10000 bytes to be loaded, and the CPU will have to wait for it
-# - repeatedly testing this may give you a fealing for what the DVD sync time overhead is like
-
-.include "melee"
-punkpc ppc
-melee HSDObj, mem, DVD
-prolog
-dimsize = 64
-bytesize = 0x10000
-type = 6
-regs (r3), +1, rIcon, rMPad, rIconID, rHand, rHandJObj, rPlayerID, rStart, rRoot
-
-mr r3, rIconID
-li r4, type
-load r5, bytesize
-li r6, dimsize
-# r3 = ordered ID (from topleft to bottom right of CSS icons)
-# r4 = image type
-# r5 = byte size
-# r6 = square pixel dims (r6xr6)
-
-bl <CSS.icon_set_image_to_alloc>
-load r6, bytesize
-# r3 = rFile
-# r4 = rAlloc
-# r5 = rStart
-# r6 = rBytes
-
-bl <DVD.read_part>
-epilog
-blr
-
-
-
-
-<CSS.icon_select_DDown> NTSC 1.02
-# --- ASYNC LOAD TEST
-# - dpad down will also load 0x10000 bytes from disk, but without stalling the CPU
-# - once the DVD has finished syncing, the data will be available for the CPU
-#   - until then however, the CPU cannot access the loaded data
-
-.include "melee"
-punkpc ppc
-melee HSDObj, mem, DVD
-prolog
-dimsize = 64
-bytesize = 0x10000
-type = 6
-regs (r3), rIcon, rMPad, rIconID, rHand, rHandJObj, rPlayerID, rStart, rRoot
-
-mr r3, rIconID
-li r4, type
-load r5, bytesize
-li r6, dimsize
-bl <CSS.icon_set_image_to_alloc>
-regs (r3), rFile, rAlloc, rStart, rBytes, rSyncCB, rSyncArg
-load rBytes, bytesize
-
-# in addition to creating an async load, we will also cancel all async streams
-# - this is done by setting all non-0 byte counters to 1, to make the next iter the last iter
-
-regs (rSyncCB), rNext, rThis
-enum.enum_conc "meta.",, (0), +4, xPrev, xNext, xAlloc, xSize, xCount, xNum, xOffset
-# we extend into the unused second half of the header
-
-subi rThis, rAlloc, 0x20
-mr rNext, rThis
-# we will just parse through the cycling list by using rThis as a terminating sentinal
-
-0:
-  lbz r0, meta.xCount(rNext)
-  cmpwi r0, 0
-  beq+ 1f
-  # if the count is already 0, then this allocation is not being streamed to at the moment...
-
-    li r0, 1
-    stb r0, meta.xCount(rNext)
-    # otherwise, we want to cancel it by setting it to 1, so the next decrement goes back to 0
-
-  1:
-  lwz rNext, meta.xNext(rNext)
-  cmpw rThis, rNext
-  bne+ 0b
-  # continue to the next allocation, if we haven't looped all the way through the cycling list...
-
-li rSyncCB, 0
-li rSyncArg, 0
-# finally, we commit to the async call we were setting up
-# - in this case, we're not using any sync callbacks, so we just set those args to null
-
-bl <DVD.read_part_async>
-# call async with no sync callback, so we can just see the data get loaded into an image ...
-
-epilog
-blr
-
-
-
-
-
-<CSS.icon_select_DLeft> NTSC 1.02
-# --- DVD ASYNC STREAM TEST
-# - dpad left is the same as dpad down, but repeats 256 times
-
-.include "melee"
-punkpc ppc
-melee HSDObj, mem, DVD
-prolog
-dimsize = 64
-bytesize = 0x10000
-type = 6
-regs (r3), rIcon, rMPad, rIconID, rHand, rHandJObj, rPlayerID, rStart, rRoot
-
-mr r3, rIconID
-li r4, type
-load r5, bytesize
-li r6, dimsize
-bl <CSS.icon_set_image_to_alloc>
-regs (r3), rFile, rAlloc, rStart, rBytes, rSyncCB, rSyncArg
-load rBytes, bytesize
-
-
-data.start
-# start of in-line data table...
-
-  _sync_callback:
-  # This executes when a file part has finished asynchronously loading...
-
-  prolog rMeta
-  enum.enum_conc "meta.",, (0), +4, xPrev, xNext, xAlloc, xSize, xCount, xNum, xOffset
-  # we extend into the unused second half of the header
-
-  mr rMeta, DVD.sync.rSyncArg
-  lbz r3, meta.xCount(rMeta)
-  subic. r3, r3, 1
-  stb r3, meta.xCount(rMeta)
-  beq- _return
-  # this 'stream' repeats itself 256 times in the same allocation (over 256 async reads)
-  # - the iterations are not throttled, but may be delayed by other async demands
-  # - the CPU will not stall while streaming, and multiple streams can be created
-
-    lwz rFile, meta.xNum(rMeta)
-    bl <DVD.file>
-    # we saved the entrynum for rFile, so this will be a near-instant lookup for creating 'rMax'
-
-    regs (r3), rMax, rCheck
-    load rBytes, bytesize
-    sub rMax, DVD.file.rBytes, rBytes
-    lwz rStart, meta.xOffset(rMeta)
-    add rCheck, rStart, rBytes
-    cmpw rCheck, rMax
-    blt+ 0f
-      li rStart, 0
-      mr rCheck, rBytes
-    0: stw rCheck, meta.xOffset(rMeta)
-    # update offset for next iteration
-    # r3 and r4 are now free to use again
-
-    lwz rFile, meta.xNum(rMeta)
-    lwz rAlloc, meta.xAlloc(rMeta)
-    mr rSyncArg, rMeta
-    data.get rSyncCB
-    # get address of _sync_callback: in rSyncCB
-
-    bl <DVD.read_part_async>
-
-  _return:
-  epilog
-  blr
-data.end rSyncCB
-# put address of in-line callback in rSyncCB argument, to pass to async read
-
-subi rSyncArg, rAlloc, 0x20
-# pass 'rMeta' along to callback through the argument that appears in DVD.sync.rSyncArg
-
-stw rFile, meta.xNum(rSyncArg)
-li r0, 0
-stw rStart, meta.xOffset(rSyncArg)
-stb r0, meta.xCount(rSyncArg)
-# update params for sync callback to use
-
-bl <DVD.read_part_async>
-# once DVD syncs, callback will be executed
-
-epilog
-blr
-
-<CSS.icon_select_DRight> NTSC 1.02
-
-# --- ARAM ASYNC STREAM TEST
-# - dpad right is the same as dpad left, but uses ARAM DMAs instead of DVD
-
-.include "melee"
-punkpc ppc
-melee HSDObj, mem, DVD
-prolog
-dimsize = 64
-bytesize = 0x10000
-type = 6
-regs (r3), rIcon, rMPad, rIconID, rHand, rHandJObj, rPlayerID, rStart, rRoot
-
-mr r3, rIconID
-li r4, type
-load r5, bytesize
-li r6, dimsize
-bl <CSS.icon_set_image_to_alloc>
-
-regs (r3), rDest, rSource, rLength, rSyncCB, rSyncArg
-mr rDest, r4
-li rSource, 0  # byte 0 of ARAM
-subi rSyncArg, rDest, 0x20
-load rLength, bytesize
-data.start
-
-  _sync_callback:
-  # for ARAM this time, not DVD...
-
-  prolog rMeta
-  enum.enum_conc "meta.",, (0), +4, xPrev, xNext, xAlloc, xSize, xCount, xNum, xOffset
-  # we extend into the unused second half of the header
-
-
-  mr rMeta, r3
-  lbz r3, meta.xCount(rMeta)
-  subic. r3, r3, 1
-  stb r3, meta.xCount(rMeta)
-  beq- _return
-
-    lwz rSource, meta.xOffset(rMeta)
-    load rLength, bytesize
-    add r3, rSource, rLength
-    lis r0, 0x30
-    cmpw r3, r0
-    blt+ 0f; li r3, 0; 0:
-    # - first 3 mb of ARAM is usually populated, while other parts may be blank
-    # - we just display the beginning so that it's obvious that the icons are streaming
-
-    stw r3, meta.xOffset(rMeta)
-    # the offset for next iteration is updated
-
-    mr rSyncArg, rMeta
-    addi rDest, rMeta, 0x20
-    data.get rSyncCB
-    bl <data.copy_async>
-
-  _return:
-  epilog
-  blr
-
-data.end rSyncCB
-# put address of in-line callback in rSyncCB argument, to pass to async read
-
-li r0, 0
-stw rLength, meta.xOffset(rSyncArg)
-stb r0, meta.xCount(rSyncArg)
-# update params for sync callback to use
-
-bl <data.copy_async>
-# once DVD syncs, callback will be executed
-
-epilog
-blr
-
-
-
--==-
-!
-CSS TESTS - DVD Loading Safety
-While hovering over icon in CSS...
-
-DUp = load "GmPause.usd" (with no safety logic in place)
-DDown = load "GmPause.usd" ONLY if there is room in heap
-
-DRight = load "test.hax" ONLY if file exists
-DLeft = load "test.hax" ONLY if file exists, and there is room
-
-All loads are made redundantly using OSHeap space
-Icon textures will transform into a visual representation:
-- repeated loads will eventually exhaust free bytes available
-- if a file is loaded while out of space, the game will freeze
-- if a file name isn't found in FST, it is safely avoided in all cases
-[Punkline]
-<CSS.icon_select_DDown> NTSC 1.02
-.include "melee"
-punkpc ppc
-melee DVD, mem
-prolog rData, rSFX
-enum (0x80), +1, SFX.true, SFX.false
-
-  data.start
-    .asciz "GmPause.usd"
-    align 2
-  data.end rData
-  mr r3, rData
-  li rSFX, SFX.false
-  bl <DVD.file>
-  bt- DVD.file.bInvalid, _play_sfx
-  # fail if file isn't found for some reason
-
-    mr r4, DVD.file.rBytes
-    # else, get byte size from file system table
-
-    li r3, 0
-    bl <mem.info>
-    bf- mem.info.bIsAvailable, _play_sfx
-    # fail if requested bytes aren't available
-
-      li rSFX, SFX.true
-      mr r3, rData
-      li r4, 0
-      bl <DVD.read>
-      # else, commit to load
-
-  _play_sfx:
-  mr r3, rSFX
-  bl <SFX.play>
-  bl <CSS.icon_display_RAM>
-
-epilog
-blr
-
-
-<CSS.icon_select_DUp> NTSC 1.02
-.include "melee"
-punkpc ppc
-melee DVD, mem
-prolog rData
-enum (0x80), +1, SFX.true, SFX.false
-
-  data.start
-    .asciz "GmPause.usd"
-    align 2
-  data.end rData
-  li r3, SFX.true
-  bl <SFX.play>
-  # play SFX first so that we can hear it even on failure
-
-  mr r3, rData
-  li r4, 0
-  bl <DVD.read>
-  bl <CSS.icon_display_RAM>
-
-epilog
-blr
-
-
-<CSS.icon_select_DLeft> NTSC 1.02
-.include "melee"
-punkpc ppc
-melee DVD, mem
-prolog rData, rSFX
-enum (0x80), +1, SFX.true, SFX.false
-
-  data.start
-    .asciz "test.hax"
-    align 2
-  data.end rData
-  mr r3, rData
-  li rSFX, SFX.false
-  bl <DVD.file>
-  bt- DVD.file.bInvalid, _play_sfx
-    mr r4, DVD.file.rBytes
-    li r3, 0
-    bl <mem.info>
-    bf- mem.info.bIsAvailable, _play_sfx
-      li rSFX, SFX.true
-      mr r3, rData
-      li r4, 0
-      bl <DVD.read>
-
-  _play_sfx:
-  mr r3, rSFX
-  bl <SFX.play>
-  bl <CSS.icon_display_RAM>
-epilog
-blr
-
-
-<CSS.icon_select_DRight> NTSC 1.02
-.include "melee"
-punkpc ppc
-melee DVD, mem
-prolog rData, rSFX
-enum (0x80), +1, SFX.true, SFX.false
-
-  data.start
-    .asciz "test.hax"
-    align 2
-  data.end rData
-  li rSFX, SFX.true
-  mr r3, rData
-  li r4, 0
-  bl <DVD.read>
-  bf- DVD.read.bInvalid, _play_sfx
-    li rSFX, SFX.false
-
-  _play_sfx:
-  mr r3, rSFX
-  bl <SFX.play>
-  bl <CSS.icon_display_RAM>
-
 epilog
 blr
