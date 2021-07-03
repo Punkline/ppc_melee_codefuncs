@@ -212,11 +212,11 @@ blr
 # r3 = rOut
 .include "melee"
 punkpc ppc
-prolog rOut, rBuffer, rLength
+prolog rOut, rBuffer, rSize
 
 mr rBuffer, r3
 addi rOut, r3, -2
-mr. rLength, r4
+mr. rSize, r4
 ble- _return
 # only fill if a length was given
 
@@ -224,7 +224,7 @@ _for_n_hwords:
   lis r3, 2
   subi r3, r3, 1  # a 17-bit 2's complement modulo should provide good entropy for hword fill
   bl <rand.max_int>
-  subic. rLength, rLength, 2
+  subic. rSize, rSize, 2
   blt- _for_odd_byte
   sthu r3, 0x2(rOut)
   bgt+ _for_n_hwords

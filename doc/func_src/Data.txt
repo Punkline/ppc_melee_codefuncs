@@ -3,18 +3,18 @@
 Data Functions
 
 data.zero  # fill out given area with zero
-args: rData, rLength
+args: rData, rSize
 
 data.fill  # fill out given area with a byte value
-args: rData, rFill, rLength
+args: rData, rFill, rSize
 
 data.copy  # Copies data from r4 over to r3
-args: rDest, rSource, rLength
+args: rDest, rSource, rSize
 # - ARAM addresses are accepted for rSource/rDest
 # - DMA request for ARAM is slow, but faster than DVD
 
 data.copy_async  # Use async DMA queue with custom callback
-args: rDest, rSource, rLength, rCallback, rCallbackArg
+args: rDest, rSource, rSize, rCallback, rCallbackArg
 # - intended for ARAM <> SRAM copies
 # - rCallback will be executed once copy has finished
 
@@ -26,15 +26,15 @@ args: rA, rB
  <-- rBool
 
 data.cmp  # compare 2 lengths of binary
-args: rA, rB, rLength
+args: rA, rB, rSize
  <-- rBool
 
 data.flush_DC  # flush data cache
-args: rAddr, rLength
+args: rAddr, rSize
 # - prevents race conditions with hardware accessing SRAM
 
 data.flush_IC  # flush instruction cache
-args: rAddr, rLength
+args: rAddr, rSize
 # - forces written ppc instructions to be newly-interpreted
 
 [Punkline]
@@ -61,7 +61,7 @@ b <data.copy_async>
 # --- args:
 # r3 = rCopy  - Copy data TO this address
 # r4 = rFrom  - Copy data FROM this address
-# r5 = rLength
+# r5 = rSize
 # r6 = rSync  - sync callback, executes once the ARAM copy has finished
 # r7 = rArg   - sync callback argument, gets passed as r3 to rSync when executed
 

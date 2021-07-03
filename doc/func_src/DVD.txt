@@ -3,9 +3,9 @@
 DVD Functions
 DVD.file
  args: rFile  # rFile == rNum, rPath, or rOffset
-  <-- rNum, rPath, rBytes, rAlign, rOffset, rFST, rFile
+  <-- rNum, rPath, rSize, rAlign, rOffset, rFST, rFile
   <-- cr1.eq: bInvalid
-  # rAlign is the rBytes padded to ceiling 0x20 bytes
+  # rAlign is the rSize padded to ceiling 0x20 bytes
 
   rFST  # File System Table element struct...
   0x0 = Point to symbol string (path name)
@@ -14,27 +14,27 @@ DVD.file
 
 DVD.read
  args: rFile, rOut  # rOut = address to output or an alloc region ID
-  <-- rNum, rOut, (null), rBytes, (null), (null), rMeta, rPath, (null)
+  <-- rNum, rOut, (null), rSize, (null), (null), rMeta, rPath, (null)
   <-- cr1.eq: bInvalid
 
 DVD.read_async  # rCallback = function executed when load finishes
  args: rFile, rOut, rSyncCB, rSyncArg
-  <-- rNum, rOut, (null), rBytes, rSyncCB, (null), rMeta, rPath, rAsync
+  <-- rNum, rOut, (null), rSize, rSyncCB, (null), rMeta, rPath, rAsync
   <-- cr1.eq: bInvalid,  cr1.lt: bNotSynced
 
-DVD.read_part  # rBytes = size of partial load
- args: rFile, rOut, rStart, rBytes
-  <-- rNum, rOut, rStart, rBytes, (null), (null), rMeta, rPath, (null)
+DVD.read_part  # rSize = size of partial load
+ args: rFile, rOut, rStart, rSize
+  <-- rNum, rOut, rStart, rSize, (null), (null), rMeta, rPath, (null)
   <-- cr1.eq: bInvalid
 
 DVD.read_part_async  # rAsync = read-only async load info struct
- args: rFile, rOut, rStart, rBytes, rSyncCB, rSyncArg
-  <-- rNum, rOut, rStart, rBytes, rSyncCB (null), rMeta, rPath, rAsync
+ args: rFile, rOut, rStart, rSize, rSyncCB, rSyncArg
+  <-- rNum, rOut, rStart, rSize, rSyncCB (null), rMeta, rPath, rAsync
   <-- cr1.eq: bInvalid,  cr1.lt: bNotSynced
 
 DVD.read_archive  # rArch = alloc (or region ID) for output archive obj
  args: rFile, rOut, rArch
-  <-- rNum, rOut, (null), rBytes, (null), rArch, rMeta, rPath, (null)
+  <-- rNum, rOut, (null), rSize, (null), rArch, rMeta, rPath, (null)
   <-- cr1.eq: bInvalid
 
 
@@ -715,7 +715,7 @@ _list_end:
 .include "melee"
 punkpc ppc
 melee DVD, mem
-prolog rAsync, rStr, rMeta, rArch, rSyncCB, rBytes, rStart, rOut, rNum, rSize, rSyncArg, rArgs
+prolog rAsync, rStr, rMeta, rArch, rSyncCB, rSize, rStart, rOut, rNum, rSize, rSyncArg, rArgs
 # saved registers for r31 -= 1 ...
 # - the first 8 registers are ordered to resemble part of the return interface
 
@@ -755,9 +755,9 @@ bt- bInvalid, _return
   # save returned file information in uninitialized registers
 
   sub rSize, r5, rStart
-  cmplw rBytes, rSize
-  ble+ 0f; mr rBytes, rSize; 0:
-  addi rSize, rBytes, 0x1F
+  cmplw rSize, rSize
+  ble+ 0f; mr rSize, rSize; 0:
+  addi rSize, rSize, 0x1F
   rlwinm rSize, rSize, 0, ~0x1F
   # Calculate arbitrary part size, and cap it if necessary
   # - resulting size is rounded up to align to 0x20 bytes, if necessary

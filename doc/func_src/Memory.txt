@@ -226,7 +226,7 @@ b 0x8037f1b0
 .include "melee"
 melee mem
 punkpc ppc
-regs (r3), rDef, rBytes, (r3), rID, rPush, (r4), rPoint
+regs (r3), rDef, rSize, (r3), rID, rPush, (r4), rPoint
 subic. r0, rID, 2
 blt- _OS_Arena_Definition
 
@@ -235,8 +235,8 @@ blt- _OS_Arena_Definition
   mulli r0, r0, MemDef.size
   add rDef, rDef, r0
   lwz r0, MemDef.xSize(rDef)
-  add rBytes, rPush, r0
-  stw rBytes, MemDef.xSize(rDef)
+  add rSize, rPush, r0
+  stw rSize, MemDef.xSize(rDef)
   blr
 
   _OS_Arena_Definition:

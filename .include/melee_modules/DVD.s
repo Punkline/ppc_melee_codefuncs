@@ -8,7 +8,7 @@ enum.enum_conc "r13.",, (-0x4424), +4, xFSTEntries, xFSTPaths, xFSTCount, (-0x3e
 
 # --- RETURNS for <DVD.file>
 # args: r3=rFile  (== rNum, rPath, or rOffset)
-enum.enum_conc "DVD.file.",, (r3), +1, rNum, rPath, rBytes, rAlign, rOffset, rFST, rFile,  (cr1.eq), bInvalid
+enum.enum_conc "DVD.file.",, (r3), +1, rNum, rPath, rSize, rAlign, rOffset, rFST, rFile,  (cr1.eq), bInvalid
 
 # rFST:
 enum.enum_conc "FST.",, (0), +4, xStr, xOffset, xSize
@@ -24,7 +24,7 @@ enum.enum_conc "DVD.async.",, (0), +4, xNext, xIDX, xNum, xStart, xDest, xSize, 
 
 # --- RETURNS for all variations of <DVD.read*>
 # args: r3=rFile, r4=rOut, r5=... (additional args vary by function)
-enum.enum_conc "DVD.read.",, (r3), +1, rNum, rOut, rStart, rBytes, rSyncCB, rArch, rMeta, rPath, rAsync, (cr1.lt), bNotSynced, (cr1.eq), bInvalid
+enum.enum_conc "DVD.read.",, (r3), +1, rNum, rOut, rStart, rSize, rSyncCB, rArch, rMeta, rPath, rAsync, (cr1.lt), bNotSynced, (cr1.eq), bInvalid
 
 
 # --- ARGUMENTS for sync callbacks
