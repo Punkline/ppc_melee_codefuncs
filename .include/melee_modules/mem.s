@@ -64,6 +64,22 @@ CacheMeta.xSize  = 0x08
 CacheMeta.size   = 0x0C
 # (these structs can be navigated to from the above global structs)
 
+data.async_info.xNext    = 0x00
+data.async_info.xStatus  = 0x04
+data.async_info.xSource  = 0x18
+data.async_info.xDest    = 0x1C
+data.async_info.xSize    = 0x20
+data.async_info.xMainCB  = 0x24  # main is assigned by DMA Queueing function, automatically
+data.async_info.xSyncCB  = 0x28  # sync callback is assigned by user
+data.async_info.xSyncArg = 0x2C  # arg is passed to sync callback at time of data copy finish
+data.async_info.addr = 0x804316c0
+# ARAM Dynamic Memory Access Queue descriptors list pending Async copys to/from ARAM
+
+data.async_glob.xFree    = 0x00
+data.async_glob.xAsync   = 0x04
+data.async_glob.xSynced  = 0x08
+data.async_glob.addr     = 0x804316c0 + 0x1E0
+# ARAM DMA globals keep linked lists describing current pending/free async copy descriptors
 
 
 
@@ -125,6 +141,20 @@ mem.info.rABig   = r11
 mem.info.rATotal = r12
 # - rF* and rA* represent 'Free' and 'Allocated' params for the given region ID
 # - r*Big returns the largest found fragment of free/alloc fragments counted in this region
+
+
+# --- RETURNS for <data.async_info>
+data.async_info.rAsync     = r3
+data.async_info.rDest      = r4
+data.async_info.rSource    = r5
+data.async_info.rSize      = r6
+data.async_info.rSyncCB    = r7
+data.async_info.rSyncArg   = r8
+data.async_info.rGlob      = r9
+data.async_info.rQuery     = r10
+data.async_info.bNotSynced = cr1.lt
+data.async_info.bMatch     = cr1.gt
+data.async_info.bSynced    = cr1.eq
 
 
 .endif

@@ -21,6 +21,34 @@ args: rDest, rSource, rSize, rCallback, rCallbackArg
   (sync callback arguments)
   args: rCallbackArg
 
+
+data.async_info  # return info about pending async copies
+args: rQuery  # for matching rDest, rSource, rCB, or rArg
+ <-- rAsync, rDest, rSource, rSize, rCB, rArg, rGlob, rQuery
+ <-- cr1.lt: bNotSynced,  cr1.gt: bMatch,  cr1.eq: bSynced
+
+ rAsync  # Async ARAM Copy queue info struct...
+0x00 : POINT : to next info struct in queue
+0x04 : WORD  : Link ID -- 0=free, 1=async, 2=synced
+0x08 : POINT : to other struct + 8 (no header) ???
+0x0C : POINT : to header (offset 0x00)
+0x10 : FLAG? : usually '1'
+0x14 : ???
+0x18 : POINT : to Source address, for copy  (SRAM or DRAM)
+0x1C : POINT : to Destination address       (SRAM or DRAM)
+0x20 : WORD  : Size of remaining copy job (in bytes)
+0x24 : POINT : to Event Handler  (used by DMA queue?)
+0x28 : POINT : to Sync Callback  (provided by user)
+0x2C : WORD  : Callback Argument (for sync callback)
+
+rGlob # ARAM Async Info Globals...
+# - these correspond with the Link ID:
+0x00 : POINT : to list of currently free descriptors
+0x04 : POINT : to list of currently queued descriptors
+0x08 : POINT : to list of synced descriptors ready for callback
+
+
+
 data.strcmp  # Compare 2 null-terminated strings
 args: rA, rB
  <-- rBool
@@ -151,8 +179,8 @@ mr. r26, r3  # r26 = Destination of copy
 mr  r27, r5  # r27 = Size
 mr  r23, r6  # r23 = Callback
 mr  r24, r7  # r24 = Callback Argument
-addi r31, r8, 0x16c0
-# r31 = base of ARAM DMA queue structure
+ori r31, r8, 0x16c0
+# r31 = base of ARAM DMA queue structure -- 804316c0
 
 mr r4, r27   # r4 = size to invalidate or store in Data Cache (DC)
 bge- 0f
@@ -222,3 +250,90 @@ b 0x803258a8
 b 0x8034480c
 <data.flush_IC> NTSC 1.02
 b 0x8000543c
+
+<data.async_info> NTSC 1.02
+# Get info about queued ARAM DMA copy jobs based on input query
+
+# --- args:
+# r3 = rQuery -- compared against rDest, rSource, rCB, rArg for matches
+
+# --- returns:
+# cr1.lt = bNotSynced  -- 'matched async is not done copying'
+# cr1.gt = bMatch      -- 'match found'
+# cr1.eq = bSynced     -- 'no match found' (if input was valid, this means it synced already)
+# r3 = rAsync   -- async info (null if no match)
+# r4 = rDest   -- copy destination
+# r5 = rSource -- copy source
+# r6 = rSize   -- copy size
+# r7 = rCB     -- callback argument
+# r8 = rArg    -- callback address
+# r9 = rGlob   -- global pointers
+# r10 = rQuery -- (given query)
+
+# --- ARAM Async Info descriptor - 10 (?) 0x30-byte structures starting at 0x804316c0
+# 0x00 : POINT : to next info struct in queue
+# 0x04 : WORD  : Link ID -- 0=free, 1=async, 2=synced
+# 0x08 : POINT : to other struct + 8 (no header) ???
+# 0x0C : POINT : to header (offset 0x00)
+# 0x10 : FLAG? : usually '1'
+# 0x14 : ???
+# 0x18 : POINT : to Source address, for copy  (SRAM or DRAM)
+# 0x1C : POINT : to Destination address       (SRAM or DRAM)
+# 0x20 : WORD  : Size of remaining copy job (in bytes)
+# 0x24 : POINT : to Event Handler  (used by DMA queue?)
+# 0x28 : POINT : to Sync Callback  (provided by user)
+# 0x2C : WORD  : Callback Argument (for sync callback)
+
+# --- ARAM Async Info Globals - starting at 0x804316c0 + 0x1E0
+# - these correspond with the Link ID:
+# 0x00 : POINT : to list of currently free descriptors
+# 0x04 : POINT : to list of currently queued descriptors
+# 0x08 : POINT : to list of synced descriptors ready for callback
+
+
+.include "melee"
+punkpc ppc
+melee mem
+regs (r3), +1, rAsync, rDest, rSource, rSize, rCB, rArg, rGlob, rQuery
+enum (cr1.lt), bNotSynced, bMatch, bSynced   # returned bools
+li r0, 0
+cmpwi cr1, r0, 0
+# Default:
+# bNotSynced = False
+# bMatch     = False
+# bSynced    = True
+
+mr rQuery, r3
+load rGlob, data.async_glob.addr
+lwz r0, data.async_glob.xAsync(rGlob)
+# check the pending queue for any matching elements...
+
+_for_each_pending:
+  mr. rAsync, r0
+  bgelr-
+  # return without updating default cr1 values if no match is found in queued
+
+  lwz rDest, data.async_info.xDest(rAsync)
+  cmpw rDest, rQuery
+  lwz rSource, data.async_info.xSource(rAsync)
+  crmove bMatch, eq
+  cmpw rSource, rQuery
+  lwz rCB, data.async_info.xSyncCB(rAsync)
+  cror bMatch, bMatch, eq
+  cmpw rCB, rQuery
+  lwz rArg, data.async_info.xSyncArg(rAsync)
+  cror bMatch, bMatch, eq
+  cmpw rArg, rQuery
+  lwz rSize, data.async_info.xSize(rAsync)
+  cror bMatch, bMatch, eq
+  lwz r0, data.async_info.xNext(rAsync)
+  bf+ bMatch, _for_each_pending
+
+_on_match:
+crnot bSynced, bMatch
+crmove bNotSynced, bMatch
+# set bools according to bMatch
+# - these are formatted to be similar to DVD async_info returns, even though they are redundant...
+
+_return:
+blr

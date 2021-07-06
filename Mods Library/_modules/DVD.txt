@@ -333,34 +333,112 @@ b <DVD.__read_handler>
 #    0x1C : POINT : to sync callback (or null, if not used)
 #    0x20 : WORD  : sync callback argument (or null, if not used) -- passed as arg r4
 
-7C0802A6 9421FFE0
-90010024 BFA10010
-7FA00026 2C03FFFF
-40A20010 806DC158
-2C830000 48000088
-7C7F1B79 83CDC158
-2C9E0000 4D084102
-40840074 41810054
-2C1FFFFF 41820068
-48000028 7C1EF800
-801E0010 807E001C
-7D00F800 7D83F800
-4D025382 4D087382
-41880044 83DE0000
-2C9E0000 4184FFD8
-7FE3FB78
-bl <DVD.file>
-4BFFFFA8 83DE0000
-2C9E0000 40840020
-801E0008 7C00F800
-4D021382 41880010
-83DE0000 2C9E0000
-4184FFE8 7FC3F379
-3880FFFF 7FE5FB78
-41820008 809E0008
-7FABF120 BBA10010
-80010024 38210020
-7C0803A6 4E800020
+.include "melee"
+melee DVD
+punkpc ppc
+
+prolog rQuery, rAsync, rCR
+# start of function...
+
+regs (r3), rArg
+regs (r3), rRet, rNum, rGiven
+# argument/return registers
+
+enum (eq), +8, bInfo,  +4, bDest, bCallback, bArg  # working bools
+enum (cr1.lt), +1, bNotSynced, bMatch, bSynced   # returned bools
+mfcr rCR
+cmpwi rArg, -1
+bne+ _begin
+# we check for '-1' as a special input case
+
+  lwz rRet, r13.xDVDAsyncQueue(r13)
+  cmpwi cr1, rRet, 0  # this will record true or false in bSynced ...
+  b _return
+  # '-1' will return immediately with the front of the queue, and a check to see if it's null
+  # - bSynced will be true if no async event is present in queue (DVD load is synced with CPU)
+
+_begin:
+mr. rQuery, rArg
+lwz rAsync, r13.xDVDAsyncQueue(r13)
+# otherwise, check to see if queue is empty
+
+cmpwi cr1, rAsync, 0
+crclr bMatch
+bge- cr1, _return
+# start off with a cleared bMatch bool, and check for an initial null
+# - if this pointer is null, it just means no DVD read events are currently queued
+
+  bgt- _check_entrynum_start
+  # if positive, check only for entrynumbers
+
+    cmpwi rQuery, -1
+    beq- _return
+    b _check_if_null  # if Query is a null entrynum (-1), then return without a match
+
+      _check_pointers:
+      cmpw rAsync, rQuery
+      lwz r0, DVD.async_info.xDest(rAsync)
+      lwz r3, DVD.async_info.xSyncCB(rAsync)
+      cmpw cr2, r0, rQuery
+      lwz r0, DVD.async_info.xSyncArg(rAsync)
+      cmpw cr3, r3, rQuery
+      cmpw cr4, r0, rQuery
+      # cr0, cr2, and cr3 have temporary comparisons for the query to possibly match
+
+      cror bMatch, bInfo, bDest
+      cror bMatch, bMatch, bCallback
+      cror bMatch, bMatch, bArg
+      bt- bMatch, _return
+      # If rAsync, Load Destination, or Callback match rQuery, then element is returned ...
+
+        lwz rAsync, DVD.async_info.xNext(rAsync)
+        # ... else, load the next struct and try that one
+
+    _check_if_null:
+    cmpwi cr1, rAsync, 0
+    blt+ cr1, _check_pointers
+    # continue to check this element only if the link pointer isn't null
+
+      _try_file:
+      mr r3, rQuery
+      bl <DVD.file>
+      b _begin
+      # if a pointer couldn't be found for a match, then we try putting the query through .file
+      # - this should return an entrynum or an error code in r3, so we send thread back to _begin:
+
+    _check_next_num:
+    lwz rAsync, DVD.async_info.xNext(rAsync)
+    cmpwi cr1, rAsync, 0
+    bge- cr1, _return  # return if out of entrynums to check for
+
+  _check_entrynum_start:
+  lwz r0, DVD.async_info.xNum(rAsync)
+  cmpw r0, rQuery
+  crmove bMatch, eq
+  bt- bMatch, _return
+    lwz rAsync, DVD.async_info.xNext(rAsync)
+    cmpwi cr1, rAsync, 0
+    blt+ cr1, _check_entrynum_start
+    # check each element for a matching entrynum
+
+_return:
+mr. rRet, rAsync
+li rNum, -1
+mr rGiven, rQuery
+# load return values ...
+
+beq- 0f; lwz r4, DVD.async_info.xNum(rAsync); 0:
+# if valid, then load rNum from struct instead of default error -1 ...
+
+crnot bSynced, bMatch
+crnot bNotSynced, bSynced
+mtcrf 0xBF, rCR
+# restore only non-returned CR fields
+
+epilog
+blr
+
+
 
 
 

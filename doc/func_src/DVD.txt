@@ -386,7 +386,7 @@ b <DVD.__read_handler>
 # r3 = file, async info, sync callback, or output destination
 #    Arg is used to identify one of the async file read info structs in the async queue
 #    - if query has a sign bit, it checks the mentioned pointers in each element for a match
-#    - otherwise, it will check for a matching entrynumber instead
+#    - otherwise, it will check for a matching entrynumber or SyncArg instead
 #      - in cases where a pointer check fails, it is checked for a path string with <DVD.file>
 #        - if the path string produces an entrynum, then a second pass is made with the entrynum
 #    - if no match is made, then a null is returned and cr1.gt is false
@@ -428,8 +428,8 @@ regs (r3), rArg
 regs (r3), rRet, rNum, rGiven
 # argument/return registers
 
-enum (eq), +8, bInfo,  +4, bDest, bCallback  # working bools
-enum (cr1.lt), bNotSynced, bMatch, bSynced   # returned bools
+enum (eq), +8, bInfo,  +4, bDest, bCallback, bArg  # working bools
+enum (cr1.lt), +1, bNotSynced, bMatch, bSynced   # returned bools
 mfcr rCR
 cmpwi rArg, -1
 bne+ _begin
@@ -461,18 +461,21 @@ bge- cr1, _return
 
       _check_pointers:
       cmpw rAsync, rQuery
-      lwz r0, DVD.async.xDest(rAsync)
-      lwz r3, DVD.async.xSyncCB(rAsync)
+      lwz r0, DVD.async_info.xDest(rAsync)
+      lwz r3, DVD.async_info.xSyncCB(rAsync)
       cmpw cr2, r0, rQuery
+      lwz r0, DVD.async_info.xSyncArg(rAsync)
       cmpw cr3, r3, rQuery
+      cmpw cr4, r0, rQuery
       # cr0, cr2, and cr3 have temporary comparisons for the query to possibly match
 
       cror bMatch, bInfo, bDest
       cror bMatch, bMatch, bCallback
+      cror bMatch, bMatch, bArg
       bt- bMatch, _return
       # If rAsync, Load Destination, or Callback match rQuery, then element is returned ...
 
-        lwz rAsync, DVD.async.xNext(rAsync)
+        lwz rAsync, DVD.async_info.xNext(rAsync)
         # ... else, load the next struct and try that one
 
     _check_if_null:
@@ -488,16 +491,16 @@ bge- cr1, _return
       # - this should return an entrynum or an error code in r3, so we send thread back to _begin:
 
     _check_next_num:
-    lwz rAsync, DVD.async.xNext(rAsync)
+    lwz rAsync, DVD.async_info.xNext(rAsync)
     cmpwi cr1, rAsync, 0
     bge- cr1, _return  # return if out of entrynums to check for
 
   _check_entrynum_start:
-  lwz r0, DVD.async.xNum(rAsync)
+  lwz r0, DVD.async_info.xNum(rAsync)
   cmpw r0, rQuery
   crmove bMatch, eq
   bt- bMatch, _return
-    lwz rAsync, DVD.async.xNext(rAsync)
+    lwz rAsync, DVD.async_info.xNext(rAsync)
     cmpwi cr1, rAsync, 0
     blt+ cr1, _check_entrynum_start
     # check each element for a matching entrynum
@@ -508,9 +511,11 @@ li rNum, -1
 mr rGiven, rQuery
 # load return values ...
 
-beq- 0f; lwz r4, DVD.async.xNum(rAsync); 0:
+beq- 0f; lwz r4, DVD.async_info.xNum(rAsync); 0:
 # if valid, then load rNum from struct instead of default error -1 ...
 
+crnot bSynced, bMatch
+crnot bNotSynced, bSynced
 mtcrf 0xBF, rCR
 # restore only non-returned CR fields
 
@@ -541,7 +546,7 @@ _sync_loop:
   bl <DVD.async_info>
   # Check for this async event ...
 
-  enum (cr1.lt), bNotSynced, bMatch, bSynced   # returned boolslwz r3, 0x10
+  enum (cr1.lt), +1, bNotSynced, bMatch, bSynced   # returned boolslwz r3, 0x10
   bt- bSynced, _return
   # break loop if sync has been detected
 
@@ -719,7 +724,7 @@ prolog rAsync, rStr, rMeta, rArch, rSyncCB, rSize, rStart, rOut, rNum, rSize, rS
 # saved registers for r31 -= 1 ...
 # - the first 8 registers are ordered to resemble part of the return interface
 
-enum (cr1.eq), bInvalid,  (cr1.lt), bAsync, (lt), bIsAddr
+enum (cr1.eq), +1, bInvalid,  (cr1.lt), bAsync, (lt), bIsAddr
 # returned bools
 
 sp.temp +9<<2, xArgs
