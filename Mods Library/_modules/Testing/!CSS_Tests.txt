@@ -160,7 +160,7 @@ enum (0x80), +1, SFX.true, SFX.false
   bt- DVD.file.bInvalid, _play_sfx
   # fail if file isn't found for some reason
 
-    mr r4, DVD.file.rBytes
+    mr r4, DVD.file.rSize
     # else, get byte size from file system table
 
     li r3, 0
@@ -222,7 +222,7 @@ enum (0x80), +1, SFX.true, SFX.false
   li rSFX, SFX.false
   bl <DVD.file>
   bt- DVD.file.bInvalid, _play_sfx
-    mr r4, DVD.file.rBytes
+    mr r4, DVD.file.rSize
     li r3, 0
     bl <mem.info>
     bf- mem.info.bIsAvailable, _play_sfx
@@ -402,12 +402,12 @@ li r6, dimsize
 # r6 = square pixel dims (r6xr6)
 
 bl <CSS.icon_set_image_to_alloc>
-regs (r3), rFile, rAlloc, rStart, rBytes, rSyncCB, rSyncArg
-load rBytes, bytesize
+regs (r3), rFile, rAlloc, rStart, rSize, rSyncCB, rSyncArg
+load rSize, bytesize
 # r3 = rFile
 # r4 = rAlloc
 # r5 = rStart
-# r6 = rBytes
+# r6 = rSize
 
 
 # in addition to creating a sync load, we will also cancel all async streams
@@ -470,8 +470,8 @@ li r4, type
 load r5, bytesize
 li r6, dimsize
 bl <CSS.icon_set_image_to_alloc>
-regs (r3), rFile, rAlloc, rStart, rBytes, rSyncCB, rSyncArg
-load rBytes, bytesize
+regs (r3), rFile, rAlloc, rStart, rSize, rSyncCB, rSyncArg
+load rSize, bytesize
 li rSyncCB, 0
 li rSyncArg, 0
 # - in this case, we're not using any sync callbacks, so we just set those args to null
@@ -504,8 +504,8 @@ li r4, type
 load r5, bytesize
 li r6, dimsize
 bl <CSS.icon_set_image_to_alloc>
-regs (r3), rFile, rAlloc, rStart, rBytes, rSyncCB, rSyncArg
-load rBytes, bytesize
+regs (r3), rFile, rAlloc, rStart, rSize, rSyncCB, rSyncArg
+load rSize, bytesize
 
 
 data.start
@@ -532,14 +532,14 @@ data.start
     # we saved the entrynum for rFile, so this will be a near-instant lookup for creating 'rMax'
 
     regs (r3), rMax, rCheck
-    load rBytes, bytesize
-    sub rMax, DVD.file.rBytes, rBytes
+    load rSize, bytesize
+    sub rMax, DVD.file.rSize, rSize
     lwz rStart, meta.xOffset(rMeta)
-    add rCheck, rStart, rBytes
+    add rCheck, rStart, rSize
     cmpw rCheck, rMax
     blt+ 0f
       li rStart, 0
-      mr rCheck, rBytes
+      mr rCheck, rSize
     0: stw rCheck, meta.xOffset(rMeta)
     # update offset for next iteration
     # r3 and r4 are now free to use again
@@ -602,11 +602,11 @@ load r5, bytesize
 li r6, dimsize
 bl <CSS.icon_set_image_to_alloc>
 
-regs (r3), rDest, rSource, rLength, rSyncCB, rSyncArg
+regs (r3), rDest, rSource, rSize, rSyncCB, rSyncArg
 mr rDest, r4
 li rSource, 0  # byte 0 of ARAM
 subi rSyncArg, rDest, 0x20
-load rLength, bytesize
+load rSize, bytesize
 data.start
 
   _sync_callback:
@@ -624,8 +624,8 @@ data.start
   beq- _return
 
     lwz rSource, meta.xOffset(rMeta)
-    load rLength, bytesize
-    add r3, rSource, rLength
+    load rSize, bytesize
+    add r3, rSource, rSize
     lis r0, 0x30
     cmpw r3, r0
     blt+ 0f; li r3, 0; 0:
@@ -648,7 +648,7 @@ data.end rSyncCB
 # put address of in-line callback in rSyncCB argument, to pass to async read
 
 li r0, 0
-stw rLength, meta.xOffset(rSyncArg)
+stw rSize, meta.xOffset(rSyncArg)
 stb r0, meta.xCount(rSyncArg)
 # update params for sync callback to use
 
@@ -695,13 +695,13 @@ enum.enum_conc "meta.",, (0), +4, xPrev, xNext, xAlloc, xSize
 
 addi r3, rData, 8
 bl <DVD.file>
-rBytes = DVD.file.rBytes
+rSize = DVD.file.rSize
 # alias for return register
 
 lwz rOffset, data.xOffset(rData)
-sub rBytes, rBytes, rSize
+sub rSize, rSize, rSize
 add rCheck, rOffset, rSize
-cmpw rCheck, rBytes
+cmpw rCheck, rSize
 mr rNum, DVD.file.rNum
 blt+ 0f; li rCheck, 0; 0:
 stw rCheck, data.xOffset(rData)

@@ -1,4 +1,90 @@
 -==-
+!
+CSS TESTS - TEMPLATE
+[Punkline]
+Revision ---- DOL Offset ---- Hex to Replace ---------- ASM Code -
+NTSC 1.02 --- 0x80260c14 ---- 88030002 -> Branch
+.include "melee";
+punkpc ppc          # powerpc utilities
+melee MPad, HSDObj   # controller pad symbols and HSD Symbols
+regs -1, /*
+*/ (r31), rHand, rBase, rHandJObj, rInput, /*
+*/ (r24), rIcon, rBackup, /*
+*/ (r20), rIconID, rPlayerID
+
+# -- these registers help us understand the context of this injection point
+# 803f0a48 = base address in rBase
+
+r13.xCSSJObjRoot    = -0x49E0
+# r13 offset of root JObj for CSS icons/portraits
+
+enum (0x80), +1, SFX.true, SFX.false
+# SFX IDs
+
+mr rIcon, r3
+mr rBackup, r4
+prolog r16, +0x100, xReturns
+# create stack frame to protect our registers, as part of the template...
+
+regs /*
+*/ (r27), rData, rSFX, rMPad, /*
+*/ (r22), rStart, rRoot
+
+# -- these registers are used just for this code, and have nothing to do with injection context
+
+load rMPad, MPad.addr
+mulli r0, rPlayerID, MPad.size
+add rMPad, rMPad, r0
+lwz r0, MPad.xOnPress(rMPad)
+mtcrf MPad.crf.mDPad, r0
+addi rStart, rBase, 0x803f0b24 - 0x803f0a48
+rlwinm. r0, r0, 0, MPad.mDPad
+lwz rRoot, r13.xCSSJObjRoot(r13)
+beq- _return
+# rStart = the start of the array of elements rIcon is pointing to
+# rRoot  = the root JObj of the CSS menu
+
+data.start
+
+  # <-- put data here
+
+data.end rData
+li rSFX, SFX.false
+
+bt- MPad.bDDown, _DDown
+bt- MPad.bDUp, _DUp
+bt- MPad.bDLeft, _DLeft
+bt- MPad.bDRight, _DRight
+b _return
+# The DPad bools encode a conditional branch to a programmable handler...
+
+  _DDown:
+  # <-- write handler here
+
+
+  _DUp:
+  # <--
+
+  _DLeft:
+  # <--
+
+  _DRight:
+  # <--
+
+
+_return:
+epilog
+mr r4, rBackup
+mr r3, rIcon
+# recover old context before finishing injection code...
+
+# original instruction, and return from injection:
+lbz	r0, 0x0002 (r3)
+.long 0
+
+
+
+-==-
 
 CSS TESTS - DVD Loading Safety
 While hovering over icon in CSS...
@@ -22,89 +108,103 @@ Revision ---- DOL Offset ---- Hex to Replace ---------- ASM Code -
 NTSC 1.02 --- 0x80260c14 ---- 88030002 -> Branch
 .include "melee";
 punkpc ppc          # powerpc utilities
-melee MPad, HSDObj   # controller pad symbols and HSD Symbols
-
-
-# the 'regs' macro helps us name registers counting up +1 or down +1 from a starting register (rN)
-
+melee MPad, DVD, mem, HSDObj
 regs -1, /*
 */ (r31), rHand, rBase, rHandJObj, rInput, /*
 */ (r24), rIcon, rBackup, /*
 */ (r20), rIconID, rPlayerID
-
-# -- these registers help us understand the context of this injection point
-# 803f0a48 = base address in rBase
-
-
 r13.xCSSJObjRoot    = -0x49E0
-# r13 offset of root JObj for CSS icons/portraits
 
-
-# code start:
-
+enum (0x80), +1, SFX.true, SFX.false
 mr rIcon, r3
 mr rBackup, r4
-# back these up for now, so that we don't disrupt the normal game program
-# - the assigned registers in the above 'regs' call puts these in a safe place
+prolog r16, +0x100, xReturns
+regs /*
+*/ (r27), rData, rSFX, rMPad, /*
+*/ (r22), rStart, rRoot
 
-load r4, MPad.addr
+load rMPad, MPad.addr
 mulli r0, rPlayerID, MPad.size
-add r4, r4, r0
-lwz r0, MPad.xOnPress(r4)
+add rMPad, rMPad, r0
+lwz r0, MPad.xOnPress(rMPad)
 mtcrf MPad.crf.mDPad, r0
-# We can check DPad button presses from the Master Pad .xOnPress bool field
-# - loading it into cr directly lets us use the bools without having to compare anything
+addi rStart, rBase, 0x803f0b24 - 0x803f0a48
+rlwinm. r0, r0, 0, MPad.mDPad
+lwz rRoot, r13.xCSSJObjRoot(r13)
+beq- _return
+data.start
+  0: .asciz "GmPause.usd"
+  1: .asciz "test.hax"
+  align 2
+  # include file name strings as inline data
 
-# We can use these bools to 'call' custom code based on whether or not the bits are True
-# Once the custom code is finished, it will 'return' back to the place it was called from
+  data.struct 0, "data.", xDefault, xTest
+  # count labels up to 1: and give them struct offset names
 
-# Registers r3 ... r12 may be used to safely 'pass' information to our called code
+data.end rData
+li rSFX, SFX.false
 
-# Currently, we have the following set up:
-# r3 = rIcon -- a descriptor that keeps vars for the icon currently being hovered over by cursor
-# r4 = rMPad -- the master pad struct for this player -- contains info about controller buttons
+bt- MPad.bDDown, _DDown
+bt- MPad.bDUp, _DUp
+bt- MPad.bDLeft, _DLeft
+bt- MPad.bDRight, _DRight
+b _return
+# The DPad bools encode a conditional branch to a programmable handler...
 
-mr r5, rIconID    # r5 = rIconID -- an ID representing which Icon this is
-mr r6, rHand      # r6 = rHand -- a descriptor that keeps vars for the hand cursor
-mr r7, rHandJObj  # r7 = rHandJObj -- the joint object belonging to hand cursor, for model display
-mr r8, rPlayerID  # r8 = rPlayerID -- more like a 'controller slot' ID
-addi r9, rBase, 0x803f0b24 - 0x803f0a48
-# r9 = rStart -- the start of the array of elements rIcon is pointing to
+  _DDown:  # --- Safe GmPause.usd Load
+    addi r3, rData, data.xDefault
+    bl <DVD.file>
+    bt- DVD.file.bInvalid, _play_sfx
+    # fail if file isn't found for some reason
 
-lwz r10, r13.xCSSJObjRoot(r13)  # r10 = rRoot -- the root JObj of the CSS menu
-# The 'mr' instruction lets us copy ("move") data from saved registers into our argument registers
+    mr r4, DVD.file.rSize
+    li r3, 0
+    bl <mem.info>
+    # else, get byte size from file system table, and check for free alloc of that size in heap
 
-# You may copy the following line to use these as arg registers in your callbacks:
-# regs (r3), +1, rIcon, rMPad, rIconID, rHand, rHandJObj, rPlayerID, rStart, rRoot
+    bf- mem.info.bIsAvailable, _play_SFX
+    # fail if requested bytes aren't available
+
+      li rSFX, SFX.true
+      addi r3, rData, data.xDefault
+      b _read_and_update
+      # else, commit to reading default file, and display RAM
 
 
-bf+ MPad.bDDown, 0f
-  bl <CSS.icon_select_DDown0>
-  b 3f
-0: # This branch structure executes code according to DPad Down presses...
-# - the 'bf' line is a boolean branch condition 'branch if false'
-# - the '0:' label is referenced as '0f', as a 'forward' reference
-# - the 'b 3f' line is a forward reaching branch that skips the whole struct
 
-# The 'bf' line causes the CPU to skip over the 'bl' line if the conditions isn't met
-# - this makes it so that the 'bl' line that calls our custom handler is tied to the button press
-# - once the call is finished, the 'b 3f' line skips over the rest of the logic
+  _DUp:  # --- Unsafe GmPause.usd Load
+  li rSFX, SFX.true
+    addi r3, rData, data.xDefault
+    b _read_and_update
+    # no protections on DUP, just read default file
 
-bf+ MPad.bDUp, 1f
-  bl <CSS.icon_select_DUp0>
-  b 3f
-1:
-bf+ MPad.bDLeft, 2f
-  bl <CSS.icon_select_DLeft0>
-  b 3f
-2:
-bf+ MPad.bDRight, 3f
-  bl <CSS.icon_select_DRight0>
+  _DLeft:  # --- Safe test.hax load
+    addi r3, rData, data.xTest
+    bl <DVD.file>
+    bt- DVD.file.bInvalid, _play_SFX
+      mr r4, DVD.file.rSize
+      li r3, 0
+      bl <mem.info>
+      bf- mem.info.bIsAvailable, _play_SFX
+        addi r3, rData, data.xTest
+        b _read_and_update
+        # essentially just the same as DDown -- but for different file
 
-3:  # each 'Nf' goes to its corresponding forward reaching 'N:' label
-# - 'Nb' can also be used to make 'backward' reaching references
-# - these 'f' forward and 'b' backward rules only apply if 'N' is a decimal number
+  _DRight:
+  addi r3, rData, data.xTest
+  # coninue into _read_and_update...
 
+  _read_and_update:
+  li r4, 0
+  bl <DVD.read>
+  bl <CSS.icon_display_RAM>
+
+  _play_SFX:
+  mr r3, rSFX
+  bl <SFX.play>
+
+_return:
+epilog
 mr r4, rBackup
 mr r3, rIcon
 # recover old context before finishing injection code...
@@ -115,155 +215,23 @@ lbz	r0, 0x0002 (r3)
 
 
 
+
+# --- other funcs
+
 <JObj.select_from_root> NTSC 1.02
 # r3 = root JObj (or member of family)
 # r4 = ID to select
-.include "melee"
-punkpc ppc
-melee HSDObj
-prolog +0x20, xReturns
-mr r5, r3
-_for_each_JObj:
-  cmpwi r5, 0
-  bge- 0f
-  mr r3, r5
-  lwz r5, JObj.xParent(r3)
-  b _for_each_JObj
-
-0: mr r5, r4
-addi r4, sp, sp.xReturns
-li r6, -1
-crclr 6
+7C0802A6 9421FFD0
+90010034 7C651B78
+2C050000 40800010
+7CA32B78 80A3000C
+4BFFFFF0 7C852378
+38810010 38C0FFFF
+4CC63102
 bl 0x80011e24
-lwz r3, sp.xReturns(sp)
-epilog
-blr
-
-
-<CSS.icon_select_DDown0> NTSC 1.02
-.include "melee"
-punkpc ppc
-melee DVD, mem
-prolog rData, rSFX
-enum (0x80), +1, SFX.true, SFX.false
-
-  data.start
-    .asciz "GmPause.usd"
-    align 2
-  data.end rData
-  mr r3, rData
-  li rSFX, SFX.false
-  bl <DVD.file>
-  bt- DVD.file.bInvalid, _play_sfx
-  # fail if file isn't found for some reason
-
-    mr r4, DVD.file.rBytes
-    # else, get byte size from file system table
-
-    li r3, 0
-    bl <mem.info>
-    bf- mem.info.bIsAvailable, _play_sfx
-    # fail if requested bytes aren't available
-
-      li rSFX, SFX.true
-      mr r3, rData
-      li r4, 0
-      bl <DVD.read>
-      # else, commit to load
-
-  _play_sfx:
-  mr r3, rSFX
-  bl <SFX.play>
-  bl <CSS.icon_display_RAM>
-
-epilog
-blr
-
-
-<CSS.icon_select_DUp0> NTSC 1.02
-.include "melee"
-punkpc ppc
-melee DVD, mem
-prolog rData
-enum (0x80), +1, SFX.true, SFX.false
-
-  data.start
-    .asciz "GmPause.usd"
-    align 2
-  data.end rData
-  li r3, SFX.true
-  bl <SFX.play>
-  # play SFX first so that we can hear it even on failure
-
-  mr r3, rData
-  li r4, 0
-  bl <DVD.read>
-  bl <CSS.icon_display_RAM>
-
-epilog
-blr
-
-
-<CSS.icon_select_DLeft0> NTSC 1.02
-.include "melee"
-punkpc ppc
-melee DVD, mem
-prolog rData, rSFX
-enum (0x80), +1, SFX.true, SFX.false
-
-  data.start
-    .asciz "test.hax"
-    align 2
-  data.end rData
-  mr r3, rData
-  li rSFX, SFX.false
-  bl <DVD.file>
-  bt- DVD.file.bInvalid, _play_sfx
-    mr r4, DVD.file.rBytes
-    li r3, 0
-    bl <mem.info>
-    bf- mem.info.bIsAvailable, _play_sfx
-      li rSFX, SFX.true
-      mr r3, rData
-      li r4, 0
-      bl <DVD.read>
-
-  _play_sfx:
-  mr r3, rSFX
-  bl <SFX.play>
-  bl <CSS.icon_display_RAM>
-epilog
-blr
-
-
-<CSS.icon_select_DRight0> NTSC 1.02
-.include "melee"
-punkpc ppc
-melee DVD, mem
-prolog rData, rSFX
-enum (0x80), +1, SFX.true, SFX.false
-
-  data.start
-    .asciz "test.hax"
-    align 2
-  data.end rData
-  li rSFX, SFX.true
-  mr r3, rData
-  li r4, 0
-  bl <DVD.read>
-  bf- DVD.read.bInvalid, _play_sfx
-    li rSFX, SFX.false
-
-  _play_sfx:
-  mr r3, rSFX
-  bl <SFX.play>
-  bl <CSS.icon_display_RAM>
-
-epilog
-blr
-
-
-
+80610010 80010034
+38210030 7C0803A6
+4E800020
 
 
 
@@ -275,7 +243,7 @@ blr
 
 .include "melee"
 punkpc ppc
-melee HSDObj, mem
+melee MPad, DVD, mem, HSDObj
 prolog rIcon, rCount, rFrag, +0x4, xReturn
 
 Icon.start = 0x803f0b24
@@ -380,11 +348,7 @@ Revision ---- DOL Offset ---- Hex to Replace ---------- ASM Code -
 NTSC 1.02 --- 0x80260c14 ---- 88030002 -> Branch
 .include "melee";
 punkpc ppc          # powerpc utilities
-melee MPad, HSDObj   # controller pad symbols and HSD Symbols
-
-
-# the 'regs' macro helps us name registers counting up +1 or down +1 from a starting register (rN)
-
+melee MPad, HSDObj, mem, DVD
 regs -1, /*
 */ (r31), rHand, rBase, rHandJObj, rInput, /*
 */ (r24), rIcon, rBackup, /*
@@ -393,253 +357,58 @@ regs -1, /*
 # -- these registers help us understand the context of this injection point
 # 803f0a48 = base address in rBase
 
-
 r13.xCSSJObjRoot    = -0x49E0
 # r13 offset of root JObj for CSS icons/portraits
 
-
-# code start:
+enum (0x80), +1, SFX.true, SFX.false
+# SFX IDs
 
 mr rIcon, r3
 mr rBackup, r4
-# back these up for now, so that we don't disrupt the normal game program
-# - the assigned registers in the above 'regs' call puts these in a safe place
+prolog r16, +0x100, xReturns
+# create stack frame to protect our registers, as part of the template...
 
-load r4, MPad.addr
+regs /*
+*/ (r27), rData, rSFX, rMPad, /*
+*/ (r22), rStart, rRoot
+
+# -- these registers are used just for this code, and have nothing to do with injection context
+
+dimsize = 64
+bytesize = 0x10000
+type = 6
+# these can be modified to change the displayed icon images
+
+
+load rMPad, MPad.addr
 mulli r0, rPlayerID, MPad.size
-add r4, r4, r0
-lwz r0, MPad.xOnPress(r4)
+add rMPad, rMPad, r0
+lwz r0, MPad.xOnPress(rMPad)
 mtcrf MPad.crf.mDPad, r0
-# We can check DPad button presses from the Master Pad .xOnPress bool field
-# - loading it into cr directly lets us use the bools without having to compare anything
-
-# We can use these bools to 'call' custom code based on whether or not the bits are True
-# Once the custom code is finished, it will 'return' back to the place it was called from
-
-# Registers r3 ... r12 may be used to safely 'pass' information to our called code
-
-# Currently, we have the following set up:
-# r3 = rIcon -- a descriptor that keeps vars for the icon currently being hovered over by cursor
-# r4 = rMPad -- the master pad struct for this player -- contains info about controller buttons
-
-mr r5, rIconID    # r5 = rIconID -- an ID representing which Icon this is
-mr r6, rHand      # r6 = rHand -- a descriptor that keeps vars for the hand cursor
-mr r7, rHandJObj  # r7 = rHandJObj -- the joint object belonging to hand cursor, for model display
-mr r8, rPlayerID  # r8 = rPlayerID -- more like a 'controller slot' ID
-addi r9, rBase, 0x803f0b24 - 0x803f0a48
-# r9 = rStart -- the start of the array of elements rIcon is pointing to
-
-lwz r10, r13.xCSSJObjRoot(r13)  # r10 = rRoot -- the root JObj of the CSS menu
-# The 'mr' instruction lets us copy ("move") data from saved registers into our argument registers
-
-# You may copy the following line to use these as arg registers in your callbacks:
-# regs (r3), +1, rIcon, rMPad, rIconID, rHand, rHandJObj, rPlayerID, rStart, rRoot
-
-
-bf+ MPad.bDDown, 0f
-  bl <CSS.icon_select_DDown1>
-  b 3f
-0: # This branch structure executes code according to DPad Down presses...
-# - the 'bf' line is a boolean branch condition 'branch if false'
-# - the '0:' label is referenced as '0f', as a 'forward' reference
-# - the 'b 3f' line is a forward reaching branch that skips the whole struct
-
-# The 'bf' line causes the CPU to skip over the 'bl' line if the conditions isn't met
-# - this makes it so that the 'bl' line that calls our custom handler is tied to the button press
-# - once the call is finished, the 'b 3f' line skips over the rest of the logic
-
-bf+ MPad.bDUp, 1f
-  bl <CSS.icon_select_DUp1>
-  b 3f
-1:
-bf+ MPad.bDLeft, 2f
-  bl <CSS.icon_select_DLeft1>
-  b 3f
-2:
-bf+ MPad.bDRight, 3f
-  bl <CSS.icon_select_DRight1>
-
-3:  # each 'Nf' goes to its corresponding forward reaching 'N:' label
-# - 'Nb' can also be used to make 'backward' reaching references
-# - these 'f' forward and 'b' backward rules only apply if 'N' is a decimal number
-
-mr r4, rBackup
-mr r3, rIcon
-# recover old context before finishing injection code...
-
-# original instruction, and return from injection:
-lbz	r0, 0x0002 (r3)
-.long 0
-
-
-
-<JObj.select_from_root> NTSC 1.02
-# r3 = root JObj (or member of family)
-# r4 = ID to select
-.include "melee"
-punkpc ppc
-melee HSDObj
-prolog +0x20, xReturns
-mr r5, r3
-_for_each_JObj:
-  cmpwi r5, 0
-  bge- 0f
-  mr r3, r5
-  lwz r5, JObj.xParent(r3)
-  b _for_each_JObj
-
-0: mr r5, r4
-addi r4, sp, sp.xReturns
-li r6, -1
-crclr 6
-bl 0x80011e24
-lwz r3, sp.xReturns(sp)
-epilog
-blr
-
-
-
-<CSS.icon_select_DUp1> NTSC 1.02
-# --- BASIC LOAD TEST
-# - dpad up will cause 0x10000 bytes to be loaded, and the CPU will have to wait for it
-# - repeatedly testing this may give you a fealing for what the DVD sync time overhead is like
-
-.include "melee"
-punkpc ppc
-melee HSDObj, mem, DVD
-prolog
-dimsize = 64
-bytesize = 0x10000
-type = 6
-regs (r3), +1, rIcon, rMPad, rIconID, rHand, rHandJObj, rPlayerID, rStart, rRoot
-
-mr r3, rIconID
-li r4, type
-load r5, bytesize
-li r6, dimsize
-# r3 = ordered ID (from topleft to bottom right of CSS icons)
-# r4 = image type
-# r5 = byte size
-# r6 = square pixel dims (r6xr6)
-
-bl <CSS.icon_set_image_to_alloc>
-regs (r3), rFile, rAlloc, rStart, rBytes, rSyncCB, rSyncArg
-load rBytes, bytesize
-# r3 = rFile
-# r4 = rAlloc
-# r5 = rStart
-# r6 = rBytes
-
-
-# in addition to creating a sync load, we will also cancel all async streams
-# - this is done by setting all non-0 byte counters to 1, to make the next iter the last iter
-
-regs (rSyncCB), rNext, rThis
-enum.enum_conc "meta.",, (0), +4, xPrev, xNext, xAlloc, xSize, xCount, xNum, xOffset
-# we extend into the unused second half of the header
-
-subi rThis, rAlloc, 0x20
-mr rNext, rThis
-# we will just parse through the cycling list by using rThis as a terminating sentinal
-
-0:
-  lbz r0, meta.xCount(rNext)
-  cmpwi r0, 0
-  beq+ 1f
-  # if the count is already 0, then this allocation is not being streamed to at the moment...
-
-    li r0, 1
-    stb r0, meta.xCount(rNext)
-    # otherwise, we want to cancel it by setting it to 1, so the next decrement goes back to 0
-
-  1:
-  lwz rNext, meta.xNext(rNext)
-  cmpw rThis, rNext
-  bne+ 0b
-  # continue to the next allocation, if we haven't looped all the way through the cycling list...
-
-li rSyncCB, 0
-li rSyncArg, 0
-# finally, we commit to the async call we were setting up
-# - in this case, we're not using any sync callbacks, so we just set those args to null
-
-
-bl <DVD.read_part>
-epilog
-blr
-
-
-
-
-<CSS.icon_select_DDown1> NTSC 1.02
-# --- ASYNC LOAD TEST
-# - dpad down will also load 0x10000 bytes from disk, but without stalling the CPU
-# - once the DVD has finished syncing, the data will be available for the CPU
-#   - until then however, the CPU cannot access the loaded data
-
-.include "melee"
-punkpc ppc
-melee HSDObj, mem, DVD
-prolog
-dimsize = 64
-bytesize = 0x10000
-type = 6
-regs (r3), rIcon, rMPad, rIconID, rHand, rHandJObj, rPlayerID, rStart, rRoot
-
-mr r3, rIconID
-li r4, type
-load r5, bytesize
-li r6, dimsize
-bl <CSS.icon_set_image_to_alloc>
-regs (r3), rFile, rAlloc, rStart, rBytes, rSyncCB, rSyncArg
-load rBytes, bytesize
-li rSyncCB, 0
-li rSyncArg, 0
-# - in this case, we're not using any sync callbacks, so we just set those args to null
-
-bl <DVD.read_part_async>
-# call async with no sync callback, so we can just see the data get loaded into an image ...
-
-epilog
-blr
-
-
-
-
-
-<CSS.icon_select_DLeft1> NTSC 1.02
-# --- DVD ASYNC STREAM TEST
-# - dpad left is the same as dpad down, but repeats 256 times
-
-.include "melee"
-punkpc ppc
-melee HSDObj, mem, DVD
-prolog
-dimsize = 64
-bytesize = 0x10000
-type = 6
-regs (r3), rIcon, rMPad, rIconID, rHand, rHandJObj, rPlayerID, rStart, rRoot
-
-mr r3, rIconID
-li r4, type
-load r5, bytesize
-li r6, dimsize
-bl <CSS.icon_set_image_to_alloc>
-regs (r3), rFile, rAlloc, rStart, rBytes, rSyncCB, rSyncArg
-load rBytes, bytesize
-
+addi rStart, rBase, 0x803f0b24 - 0x803f0a48
+rlwinm. r0, r0, 0, MPad.mDPad
+lwz rRoot, r13.xCSSJObjRoot(r13)
+beq- _return
+# rStart = the start of the array of elements rIcon is pointing to
+# rRoot  = the root JObj of the CSS menu
+# - skip code if no DPad buttons are being pressed...
 
 data.start
-# start of in-line data table...
 
-  _sync_callback:
+
+
+  _sync_callback_DVD:
   # This executes when a file part has finished asynchronously loading...
 
   prolog rMeta
   enum.enum_conc "meta.",, (0), +4, xPrev, xNext, xAlloc, xSize, xCount, xNum, xOffset
-  # we extend into the unused second half of the header
+  # we extend into the unused second half of the custom allocation headers
 
-  mr rMeta, DVD.sync.rSyncArg
+
+  regs (r3), +1, rFile, rAlloc, rStart, rSize, rSyncCB, rSyncArg, rThis, rNext
+
+  mr. rMeta, DVD.sync.rSyncArg
+  bge- _return_from_cb
   lbz r3, meta.xCount(rMeta)
   subic. r3, r3, 1
   stb r3, meta.xCount(rMeta)
@@ -652,15 +421,15 @@ data.start
     bl <DVD.file>
     # we saved the entrynum for rFile, so this will be a near-instant lookup for creating 'rMax'
 
-    regs (r3), rMax, rCheck
-    load rBytes, bytesize
-    sub rMax, DVD.file.rBytes, rBytes
+    regs (r3), +1, rMax, rCheck
+    load rSize, bytesize
+    sub rMax, DVD.file.rSize, rSize
     lwz rStart, meta.xOffset(rMeta)
-    add rCheck, rStart, rBytes
-    cmpw rCheck, rMax
+    add rCheck, rStart, rSize
+    cmplw rCheck, rMax
     blt+ 0f
       li rStart, 0
-      mr rCheck, rBytes
+      mr rCheck, rSize
     0: stw rCheck, meta.xOffset(rMeta)
     # update offset for next iteration
     # r3 and r4 are now free to use again
@@ -676,79 +445,26 @@ data.start
   _return_from_cb:
   epilog
   blr
-data.end rSyncCB
-# put address of in-line callback in rSyncCB argument, to pass to async read
-
-subi rSyncArg, rAlloc, 0x20
-# pass 'rMeta' along to callback through the argument that appears in DVD.sync.rSyncArg
-
-lbz r0, meta.xCount(rSyncArg)
-cmpwi r0, 0
-bne- _return
-# skip async assignment if there's already one in progress for this allocation...
-
-
-  stw rFile, meta.xNum(rSyncArg)
-  li r0, 0
-  stw rStart, meta.xOffset(rSyncArg)
-  stb r0, meta.xCount(rSyncArg)
-  # else, update params for sync callback to use
-
-bl <DVD.read_part_async>
-# once DVD syncs, callback will be executed
-
-_return:
-epilog
-blr
 
 
 
-<CSS.icon_select_DRight1> NTSC 1.02
-
-# --- ARAM ASYNC STREAM TEST
-# - dpad right is the same as dpad left, but uses ARAM DMAs instead of DVD
-
-.include "melee"
-punkpc ppc
-melee HSDObj, mem, DVD
-prolog
-dimsize = 64
-bytesize = 0x10000
-type = 6
-regs (r3), rIcon, rMPad, rIconID, rHand, rHandJObj, rPlayerID, rStart, rRoot
-
-mr r3, rIconID
-li r4, type
-load r5, bytesize
-li r6, dimsize
-bl <CSS.icon_set_image_to_alloc>
-
-regs (r3), rDest, rSource, rLength, rSyncCB, rSyncArg
-mr rDest, r4
-li rSource, 0  # byte 0 of ARAM
-subi rSyncArg, rDest, 0x20
-load rLength, bytesize
-data.start
-
-  _sync_callback:
+  _sync_callback_ARAM:
   # for ARAM this time, not DVD...
+  regs (r3), +1, rDest, rSource, rCopySize, rCB, rArg
 
   prolog rMeta
-  enum.enum_conc "meta.",, (0), +4, xPrev, xNext, xAlloc, xSize, xCount, xNum, xOffset
-  # we extend into the unused second half of the header
-
-
-  mr rMeta, r3
+  mr. rMeta, r3
+  bge- _return_ARAM
   lbz r3, meta.xCount(rMeta)
   subic. r3, r3, 1
   stb r3, meta.xCount(rMeta)
-  beq- _return
+  beq- _return_ARAM
 
     lwz rSource, meta.xOffset(rMeta)
-    load rLength, bytesize
-    add r3, rSource, rLength
+    load rCopySize, bytesize
+    add r3, rSource, rCopySize
     lis r0, 0x30
-    cmpw r3, r0
+    cmplw r3, r0
     blt+ 0f; li r3, 0; 0:
     # - first 3 mb of ARAM is usually populated, while other parts may be blank
     # - we just display the beginning so that it's obvious that the icons are streaming
@@ -756,29 +472,135 @@ data.start
     stw r3, meta.xOffset(rMeta)
     # the offset for next iteration is updated
 
-    mr rSyncArg, rMeta
+    mr rArg, rMeta
     addi rDest, rMeta, 0x20
-    data.get rSyncCB
+    data.get rCB
+    addi rCB, rCB, _sync_callback_ARAM-_sync_callback_DVD
     bl <data.copy_async>
 
-  _return:
+  _return_ARAM:
   epilog
   blr
 
-data.end rSyncCB
-# put address of in-line callback in rSyncCB argument, to pass to async read
 
-li r0, 0
-stw rLength, meta.xOffset(rSyncArg)
-stb r0, meta.xCount(rSyncArg)
-# update params for sync callback to use
 
-bl <data.copy_async>
-# once DVD syncs, callback will be executed
+data.end rData
+li rSFX, SFX.false
+mr r3, rIconID
+li r4, type
+load r5, bytesize
+li r6, dimsize
+bl <CSS.icon_set_image_to_alloc>
+load rSize, bytesize
+li rSyncCB, 0
+subi rSyncArg, rAlloc, 0x20
 
+bt- MPad.bDDown, _DDown
+bt- MPad.bDUp, _DUp
+bt- MPad.bDLeft, _DLeft
+bt- MPad.bDRight, _DRight
+b _return
+# The DPad bools encode a conditional branch to a programmable handler...
+
+
+  _DDown:  # --- Async Load
+    bl <DVD.read_part_async>
+    b _return
+
+
+  _DUp:  # --- Sync Load / Cancel Async Streaming
+    regs (r18), -1, rThis, rNext
+    subi rThis, rAlloc, 0x20
+    mr rNext, rThis
+    0:
+      mr r3, rNext
+      bl <DVD.async_info>
+      li r16, DVD.async_info.xSyncArg
+      bf- data.async_info.bSynced, 2f
+      mr r3, rNext
+      bl <data.async_info>
+      li r16, data.async_info.xSyncArg
+      bt+ data.async_info.bSynced, 1f
+
+        2:
+        li r0, 0
+        stwx r0, data.async_info.rAsync, r16
+        stb r0, meta.xCount(rNext)
+
+      1:
+      lwz rNext, meta.xNext(rNext)
+      cmpw rThis, rNext
+      bne+ 0b
+
+    # call args got destroyed in async_info loop, so restate them...
+
+    mr r3, rIconID
+    li r4, type
+    load r5, bytesize
+    li r6, dimsize
+    bl <CSS.icon_set_image_to_alloc>
+    load rSize, bytesize
+    bl <DVD.read_part>
+    b _return
+
+
+  _DLeft:  # --- Async DVD Stream
+  addi rSyncCB, rData, _sync_callback_DVD-_sync_callback_DVD
+  lbz r0, meta.xCount(rSyncArg)
+  cmpwi r0, 0
+  bne- _return
+  # skip async assignment if one's already in progress for this alloc...
+
+    stw rFile, meta.xNum(rSyncArg)
+    li r0, 0
+    stw rStart, meta.xOffset(rSyncArg)
+    stb r0, meta.xCount(rSyncArg)
+    bl <DVD.read_part_async>
+    b _return
+    # else update params and begin stream
+
+
+  _DRight:  # --- Async ARAM Stream
+  mr r3, r4
+  mr r5, rSize
+  addi r6, rData, _sync_callback_ARAM-_sync_callback_DVD
+  lbz r0, meta.xCount(rSyncArg)
+  cmpwi r0, 0
+  bne- _return
+    li r4, 0
+    subi r7, r3, 0x20
+    stw rSize, meta.xOffset(rSyncArg)
+    stb r4, meta.xCount(rSyncArg)
+    bl <data.copy_async>
+
+_return:
 epilog
-blr
+mr r4, rBackup
+mr r3, rIcon
+# recover old context before finishing injection code...
 
+# original instruction, and return from injection:
+lbz	r0, 0x0002 (r3)
+.long 0
+
+
+
+# --- other funcs
+
+<JObj.select_from_root> NTSC 1.02
+# r3 = root JObj (or member of family)
+# r4 = ID to select
+7C0802A6 9421FFD0
+90010034 7C651B78
+2C050000 40800010
+7CA32B78 80A3000C
+4BFFFFF0 7C852378
+38810010 38C0FFFF
+4CC63102
+bl 0x80011e24
+80610010 80010034
+38210030 7C0803A6
+4E800020
 
 
 <CSS.icon_set_image_to_alloc> NTSC 1.02
@@ -816,8 +638,7 @@ enum.enum_conc "meta.",, (0), +4, xPrev, xNext, xAlloc, xSize
 
 addi r3, rData, 8
 bl <DVD.file>
-rBytes = DVD.file.rBytes
-# alias for return register
+rBytes = DVD.file.rSize
 
 lwz rOffset, data.xOffset(rData)
 sub rBytes, rBytes, rSize
