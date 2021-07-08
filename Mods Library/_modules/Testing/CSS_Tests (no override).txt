@@ -514,10 +514,14 @@ b _return
     mr rNext, rThis
     0:
       mr r3, rNext
+
+      # DVD
       bl <DVD.async_info>
       li r16, DVD.async_info.xSyncArg
-      bf- data.async_info.bSynced, 2f
+      bf- DVD.async_info.bSynced, 2f
       mr r3, rNext
+
+      # ... or ARAM
       bl <data.async_info>
       li r16, data.async_info.xSyncArg
       bt+ data.async_info.bSynced, 1f

@@ -453,15 +453,32 @@ blr
 # - if one isn't found, input is fed into <DVD.file>, and the entrynums are checked against result
 # - if entrynum isn't found in second pass, then no sync is made
 
-7C0802A6 9421FFE0
-90010024 90610010
-80610010
-bl <DVD.async_info>
-4186000C
-bl 0x800195d0
-4BFFFFF0 80010024
-38210020 7C0803A6
-4E800020
+.include "punkpc.s"
+punkpc ppc
+prolog rContext, +0x20, xQuery
+addi rContext, sp, sp.xQuery
+stswi r3, rContext, 0x1c
+
+_sync_loop:
+  lwz r3, sp.xQuery(sp)
+  bl <DVD.async_info>
+  # Check for this async event ...
+
+  enum (cr1.lt), +1, bNotSynced, bMatch, bSynced   # returned boolslwz r3, 0x10
+  bt- bSynced, _return
+  # break loop if sync has been detected
+
+    bl 0x800195d0
+    # I think this call makes a status check of some kind in the DVD load
+    # - it might be responsible for displaying disk read errors
+
+    b _sync_loop
+    # continue loop until DVD reports it is finished syncing query ...
+
+_return:
+lswi r3, rContext, 0x1c
+epilog
+blr
 
 
 
