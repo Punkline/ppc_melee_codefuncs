@@ -528,8 +528,9 @@ b _return
 
         2:
         li r0, 0
-        stwx r0, data.async_info.rAsync, r16
+        stwx r0, DVD.async_info.rAsync, r16
         stb r0, meta.xCount(rNext)
+        # cancel stream scheduling callback
 
       1:
       lwz rNext, meta.xNext(rNext)

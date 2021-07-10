@@ -304,14 +304,208 @@ b 0x8038FCE4
 
 
 
-
-
-
-
-
-
-
-
 -==-
-!
+
 HSD Obj Functions
+[HSD, Punkline]
+<JObj.addAnimAll> NTSC 1.02
+# Assign Joint and Texture animation constructor trees to an existing JObj skeleton
+# --- args:
+# r3 = JObj tree
+# r4 = AnimJoint tree
+# r5 = TexAnim tree
+# r6 = ShapeAnim tree
+# - each may be null, to skip construction
+
+b 0x8036fb5c
+
+<JObj.setMtxDirtySub> NTSC 1.02
+# Used to apply iterative frame-wise transformations to joints based on animations
+# r3 = JObj
+b 0x803732E8
+
+<TObj.addAnimAll> NTSC 1.02
+# Assign a TexAnim directly to a TObj
+# - instantiates an AObj for this TObj, freeing any previously assigned AObjs before construction
+
+# --- args:
+  # r3 = TObj
+  # r4 = TexAnim
+b 0x8035e708
+
+<TObj.reqAnimAll> NTSC 1.02
+# Flags a TObj for animation, and sets a starting frame
+
+# --- args:
+# r3 = TObj
+# f1 = Anim Starting Frame
+b 0x8035e800
+
+
+<AObj.setRate> NTSC 1.02
+# Sets the animation frame rate of an AObj
+
+# --- args:
+# r3 = AObj
+# f1 = Anim Frame Rate
+b 0x8036530c
+
+
+
+# --- custom functions
+
+<TObj.set_TexAnim> NTSC 1.02
+# Assign a TexAnim directly to a TObj, with input ReqAnim and AObjRate float values
+# - instantiates an AObj for this TObj, freeing any previously assigned AObjs before construction
+
+# --- args:
+# r3 = TObj
+# r4 = TexAnim (links a TObj to an AObjDesc)
+# f1 = Anim Starting Frame
+# f2 = Anim Frame Rate
+
+# --- returns:
+# r3 = TObj (as given)
+# r4 = TexAnim (as given)
+# r5 = AObj (for this TObj)
+
+.include "melee"
+punkpc ppc
+melee HSDObj
+prolog rTObj, rTAnim, rAObj, fStart, fRate
+  mr rTObj, r3
+  fmr fStart, f1
+  mr rTAnim, r4
+  fmr fRate, f2
+  bl <TObj.addAnimAll>  # this function frees AObjs before replacing them
+  mr r3, rTObj
+  fmr f1, fStart
+  lwz rAObj, TObj.xAObj(rTObj)
+  bl <TObj.reqAnimAll>
+  mr r3, rAObj
+  fmr f1, fRate
+  bl <AObj.setRate>
+  # TObj has had its old AObj destroyed, and a new one has been constructed with starting frame/rate
+
+  _return:
+  mr r3, rTObj
+  mr r4, rTAnim
+  mr r5, rAObj
+epilog
+blr
+
+<TObj.set_TexAnim_ints> NTSC 1.02
+# Alternative version of set_TexAnim that uses integer inputs instead of floats:
+# --- args:
+# r3 = TObj
+# r4 = TexAnim
+# r5 = Params:
+#      +FFFF0000 = anim starting frame (0xFFFF -- unsigned hword; 0-bit mantissa)
+#      +0000FFFF = anim frame rate     (-0x7F.FF -- signed hword; 8-bit mantissa)
+
+# --- returns:
+# r3 = TObj (as given)
+# r4 = TexAnim (as given)
+# r5 = AObj (for this TObj)
+
+stwu sp, -0x10(sp)
+  stw r5, 0x8(sp)
+  lis r0, 0x804
+  mfspr r5, 919  # backup qr7
+    psq_l f1, 0x8(sp), 1, 4  # fast-cast QR4 == unsigned hword ints (no mantissa)
+    mtspr 919, r0
+    psq_l f2, 0xA(sp), 1, 7  # custom QR7 == signed hword fixed points (8-bit fraction)
+  mtspr 919, r5  # restore old qr7
+addi sp, sp, 0x10
+b <TObj.set_TexAnim>
+# end temporary frame, and branch into real funciton using floating point args
+
+
+
+<JObj.set_AnimJoint> NTSC 1.02
+# Assign Joint and Texture animation constructor trees to an existing JObj skeleton
+# --- args:
+# r3 = JObj root
+# r4 = AnimJoint (or AnimJointList)
+# r5 = TexAnim (or TexAnimList)
+# r6 = ShapeAnim (or ShapeAnimList)
+# r7 = Selection Index
+#      - if ID is 0+, then the nth pointer from lists given in r4, r5, r6 will be used
+#      - else r4, r5, r6 will be used directly
+#      - r4, r5, r6 may be null, to skip them
+# f1 = Starting Frame (for AnimJoint)
+
+# --- returns:
+# r3 = JObj root
+.include "melee"
+punkpc ppc
+melee HSDObj
+prolog rJObj, rSelect, fStart
+  mr. rSelect, r4
+  fmr fStart, f1
+  mr rJObj, r3
+  blt- _have_selection
+    slwi r0, rSelect, 2
+    cmpwi r4, 0
+    beq- 0f; lwzx r4, r4, r0; 0:
+    cmpwi r5, 0
+    beq- 0f; lwzx r5, r5, r0; 0:
+    cmpwi r6, 0
+    beq- 0f; lwzx r6, r6, r0; 0:
+    # get nth index, if a positive selection index was given
+
+  _have_selection:
+  bl <JObj.addAnimAll>
+  mr r3, rJObj
+  fmr f1, fStart
+  bl <JObj.reqAnimAll>
+  # sets the starting frame of every JObj->AObj in the skeleton
+
+_return:
+mr r3, rJObj
+epilog
+blr
+
+
+
+
+<JObj.set_AnimJoint_ints> NTSC 1.02
+# alternative to set_animJoint uses high in r7 to specify starting frame as integer
+
+# --- args:
+# r3 = JObj root
+# r4 = AnimJoint (or AnimJointList)
+# r5 = TexAnim (or TexAnimList)
+# r6 = ShapeAnim (or ShapeAnimList)
+# r7 = Params:
+#      +FFFF0000 = anim starting frame (0xFFFF -- unsigned hword; 0-bit mantissa)
+#      +0000FFFF = Selection index     (0xFFFF -- unsigned hword; 0-bit mantissa)
+#      - if ID is 0+, then the nth pointer from lists given in r4, r5, r6 will be used
+#      - else r4, r5, r6 will be used directly
+#      - r4, r5, r6 may be null, to skip them
+
+# --- returns:
+# r3 = JObj root
+stwu sp, -0x10(sp)
+  stw r7, 0x8(sp)
+  psq_l f1, 0x8(sp), 1, 4  # fast-cast QR4 == unsigned hword ints (no mantissa)
+addi sp, sp, 0x10
+b <JObj.set_AnimJoint>
+# end temporary frame, and branch into real funciton using floating point args
+
+
+
+<JObj.check_DirtySub> NTSC 1.02
+# Flags JObj matrix for animation transform updates (dirty mtx)
+# --- args:
+# r3 = JObj
+lwz r0, 0x14(r3)
+rlwinm. r0, r0, 0, 0x02000000
+
+bnelr-
+rlwinm. r0, r0, 0, 0x00800000
+bne- 0f
+  rlwinm. r0, r0, 0, 0x00000040
+  bnelr-
+0:
+b <JObj.setMtxDirtySub>
