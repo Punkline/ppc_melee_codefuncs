@@ -1,3 +1,180 @@
+-==-
+
+Casting Functions
+
+Cast full 32-bit ints <> floats using various fixed point scales
+- All inputs are either u32 or s32
+- Ints smaller than 32 (like s16) use remaining bits as a fraction
+- Custom fraction sizes are allowed to exceed actual bit size
+
+Cast Integer (r3) into -> Float (f1):
+float.u32  # r3 -> 0xFFFFFFFF. : 0-bit fraction
+float.u24  # r3 -> 0xFFFFFF.FF : 8-bit fraction
+float.u16  # r3 -> 0xFFFF.FFFF : 16-bit fraction
+float.u8   # r3 -> 0xFF.FFFFFF : 24-bit fraction
+float.u0   # r3 -> 0x.FFFFFFFF : 32-bit fraction
+float.scaled_u32  # r3 = int,  r4 = fraction bit count
+
+float.s32  # r3 -> -0x7FFFFFFF. : 0-bit fraction
+float.s24  # r3 -> -0x7FFFFF.FF : 8-bit fraction
+float.s16  # r3 -> -0x7FFF.FFFF : 16-bit fraction
+float.s8   # r3 -> -0x7F.FFFFFF : 24-bit fraction
+float.scaled_s32  # r3 = int,  r4 = fraction bit count
+
+
+Cast Float (f1) into -> Integer (r3):
+u32.float  # r3 <- 0xFFFFFFFF. : 0-bit fraction
+u24.float  # r3 <- 0xFFFFFF.FF : 8-bit fraction
+u16.float  # r3 <- 0xFFFF.FFFF : 16-bit fraction
+u8.float   # r3 <- 0xFF.FFFFFF : 24-bit fraction
+u0.float   # r3 <- 0x.FFFFFFFF : 32-bit fraction
+scaled_u32.float  # r3 = int,  r4 = fraction bit count
+
+s32.float  # r3 <- -0x7FFFFFFF. : 0-bit fraction
+s24.float  # r3 <- -0x7FFFFF.FF : 8-bit fraction
+s16.float  # r3 <- -0x7FFF.FFFF : 16-bit fraction
+s8.float   # r3 <- -0x7F.FFFFFF : 24-bit fraction
+scaled_s32.float  # r3 = fraction bit count
+[Punkline]
+
+
+<float.u32> ALL
+li r4, 0
+b <float.scaled_u32>
+<float.u24> ALL
+li r4, 8
+b <float.scaled_u32>
+<float.u16> ALL
+li r4, 16
+b <float.scaled_u32>
+<float.u8> ALL
+li r4, 24
+b <float.scaled_u32>
+<float.u0> ALL
+li r4, 32
+b <float.scaled_u32>
+<float.scaled_u32> ALL
+li r0, 0
+b <float.__scaled_cast>
+<float.s32> ALL
+li r4, 0
+b <float.scaled_s32>
+<float.s24> ALL
+li r4, 8
+b <float.scaled_s32>
+<float.s16> ALL
+li r4, 16
+b <float.scaled_s32>
+<float.s8> ALL
+li r4, 24
+b <float.scaled_s32>
+<float.scaled_s32> ALL
+lis r0, 0x8000
+b <float.__scaled_cast>
+<float.__scaled_cast> ALL
+# handles signed/unsigned int->float with custom exponent
+stwu sp, -0x20(sp)
+  slwi r4, r4, 20
+  stw r0, 0xC(sp)
+  addis r4, r4, 0x4330
+  xor r0, r3, r0
+  stw r4, 0x8(sp)
+  lfd f0, 0x8(sp)
+  stw r0, 0xC(sp)
+  lfd f1, 0x8(sp)
+addi sp, sp, 0x20
+fsub f1, f1, f0
+blr
+
+
+<u32.float> ALL
+li r3, 0
+b <scaled_u32.float>
+<u24.float> ALL
+li r3, 8
+b <scaled_u32.float>
+<u16.float> ALL
+li r3, 16
+b <scaled_u32.float>
+<u8.float> ALL
+li r3, 24
+b <scaled_u32.float>
+<u0.float> ALL
+li r3, 32
+b <scaled_u32.float>
+<s32.float> ALL
+li r3, 0
+b <scaled_s32.float>
+<s24.float> ALL
+li r3, 8
+b <scaled_s32.float>
+<s16.float> ALL
+li r3, 16
+b <scaled_s32.float>
+<s8.float> ALL
+li r3, 24
+b <scaled_s32.float>
+<scaled_s32.float> ALL
+lis r0, 0x4200
+b <int.__scaled_cast>
+<scaled_u32.float> ALL
+li r0, 0
+b <int.__scaled_cast>
+<int.__scaled_cast> ALL
+# handles signed/unsigned float->ints with custom exponent
+stwu sp, -0x20(sp)
+  cmpwi r0, 0
+  stfd f1, 0x8(sp)
+  lwz r4, 0x8(sp)
+  slwi r3, r3, 20
+  add r4, r4, r3
+  lis r3, 0x3F00
+  stw r4, 0x8(sp)
+  lfd f1, 0x8(sp)
+  stw r3, 0x10(sp)
+  # apply modified scale to exponent of double-precision floating point
+
+  lfs f0, 0x10(sp)
+  fadd f1, f1, f0
+  # add 0.5 so that floored integer is rounded on resulting cast
+
+  beq+ 0f
+    subic r0, r0, 1
+    lis r3, 0xFFF0
+    stw r0, 0x8(sp)  # 0x8 = fd Cap
+    stw r3, 0xC(sp)
+    li r0, 0
+    lis r3, 0x4f80
+    stw r0, 0x10(sp) # 0x10 = fs Zero
+    stw r3, 0x14(sp) # 0x14 = fs overflow
+
+    lfs f0, 0x10(sp)
+    lfd f2, 0x8(sp)
+    fsel f0, f1, f1, f0
+    fsub f1, f2, f1
+    fsel f1, f1, f0, f2
+    # Cap has been applied
+
+    lfs f2, 0x14(sp)
+    fcmpu cr0, f1, f2
+    fsub f0, f1, f2
+    fsel f1, f0, f0, f1
+    # Displace if signed cast would overflow
+
+    li r0, 0
+    blt+ 0f
+      lis r0, 0x8000
+      # r0 will be XORed into resulting int
+
+  0:
+  fctiwz f1, f1
+  stfd f1, 0x8(sp)
+  lwz r3, 0xC(sp)
+  xor r3, r3, r0
+addi sp, sp, 0x20
+blr
+
+
 
 -==-
 
@@ -65,7 +242,11 @@ args: rFloor, rCeil, rCoef
 # - equiv floating point is returned in place of fixed point
 
 [?, HSD, Punkline]
-<ps_byte_lerp>
+
+
+
+
+<ps_byte_lerp> ALL
 # Fast Linear Interpolation between a pair of byte arrays
 # - all outputs are capped to unsigned byte range
 
@@ -86,7 +267,7 @@ args: rFloor, rCeil, rCoef
 4E800020
 
 
-<color.lerp> NTSC 1.02
+<color.lerp> ALL
 7C0802A6 9421FFF0
 90010014 3C003B00
 90610010 90010010
@@ -104,12 +285,15 @@ E0417012 F0017010
 7C0803A6 4E800020
 
 
-<color.lerpi> NTSC 1.02
+<color.lerpi> ALL
 9421FFF0 B0A10010
 3CA00C07 7C17E2A6
 7CB7E3A6 E021F010
 7C17E3A6 38210010
 b <color.lerp>
+
+
+
 
 
 
