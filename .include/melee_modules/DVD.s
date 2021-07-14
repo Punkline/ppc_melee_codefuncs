@@ -2,6 +2,7 @@
 melee.module DVD
 .if module.included == 0
 punkpc regs
+melee arch
 
 
 # --- SDATA offsets

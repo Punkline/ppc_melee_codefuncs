@@ -73,6 +73,7 @@ data.async_info.xMainCB  = 0x24  # main is assigned by DMA Queueing function, au
 data.async_info.xSyncCB  = 0x28  # sync callback is assigned by user
 data.async_info.xSyncArg = 0x2C  # arg is passed to sync callback at time of data copy finish
 data.async_info.addr = 0x804316c0
+data.async_info.size = 0x30
 # ARAM Dynamic Memory Access Queue descriptors list pending Async copys to/from ARAM
 
 data.async_glob.xFree    = 0x00

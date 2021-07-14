@@ -39,7 +39,7 @@ melee.module arch
 
 .if module.included == 0
   punkpc items, stack, align
-  
+
   module.library arch, ""
   melee.subdir "arch_resources/", ""
   # set up a module library called 'arch' for reaching the resources folder
@@ -166,5 +166,35 @@ melee.module arch
       .endif
     .endr
   .endm
+
+  # --- symbols:
+
+  # archive object
+  arch.xFileSize      = 0x00
+  arch.xDataSize      = 0x04
+  arch.xRelocCount    = 0x08
+  arch.xNodeCount     = 0x0C #
+  arch.xRefCount      = 0x10
+  arch.xData          = 0x20 #
+  arch.xRelocTable    = 0x24
+  arch.xNodeTable     = 0x28 #
+  arch.xRefTable      = 0x2C
+  arch.xSymbolStrings = 0x30 #
+  arch.xFileStart     = 0x40
+  arch.size = 0x44
+
+  # returns for arch.check_init
+  arch.check_init.rStart       = r3
+  arch.check_init.rRelocTable  = r4
+  arch.check_init.rBase        = r5
+  arch.check_init.bInitialized = 4
+  arch.check_init.bRelocated   = 5
+  arch.check_init.bNoRelocs    = 6
+
+  # arg interface for generic arch.event.* callback events
+  arch.event.rParams = r10  # region of file pointed to by this symbol
+  arch.event.rArch   = r11  # archive object
+  arch.event.rSelf   = r12  # address of this event symbol definition
+
 .endif
 /**/
