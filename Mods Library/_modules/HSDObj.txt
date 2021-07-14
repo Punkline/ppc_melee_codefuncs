@@ -56,75 +56,194 @@ args: rLink, rClass, rIndex
 # --- returns:
 # r3 = initialized GObj
 
-7C0802A6 9421FFD0
-90010034 7C000026
-90010010 BF210014
-7C7B1B79 7C9C2378
-7CBF2B78 40800008
-7C7F1B78 3C008180
-7E9F0000 41B40028
-4800001C 4E800021
-00000000 00000000
-10000000 18131010
-4E800020 4BFFFFE9
-7FE802A6 40800010
-837F0009 3B80FFFF
-577BC23E 7C9C0000
-4184000C 3F808037
-639CF1B0 2D1B0000
-7F3F44AA 572017BE
-2F000001 40BA000C
-573901FA 7F39FA14
-574017BE 2F000001
-40BA0010 575A01FA
-7F5AFA14 3B5A0004
-7D990000 7E1A0000
-38607FFF 889F0000
-88BF000E
-bl 0x803901f0
-7C7E1B78 40890034
-7F63DB78
-bl 0x8037f1e4
-3880007F 7F85E379
-7C661B78 7FC3F378
-40A20008 38BF0010
-bl 0x80390B68
-807E002C 7F64DB78
-bl 0x8000c160
-408C0014 7FC3F378
-7F24CB78 88BF0008
-bl 0x8038FD54
-40900018 7FC3F378
-7F44D378 88BF000D
-88DF000F
-bl 0x8039069C
-7FC3F378 BB210014
-80010010 7C0FF120
-80010034 38210030
-7C0803A6 4E800020
+.include "melee"
+punkpc ppc
+melee GObj
+
+prolog rGDesc, rGObj, rData, rDestr, rSize, rGXDraw, rGProc, cr
+bShortSyntax = cr0.lt  # with cr backed up, we can use all fields, safely
+bHaveDestr   = cr1.lt
+bHaveData    = cr2.gt
+bHaveGProc   = cr3.lt
+bHaveGXDraw  = cr4.lt
+bHaveDesc    = cr5.lt
+bIsBranch    = cr6.eq
+# - these names make the conditions a bit easier to understand
+
+mr. rSize, r3  # comparison checks for shorthand syntax...
+mr rDestr, r4
+mr rGDesc, r5
+bf- bShortSyntax, 0f; mr rGDesc, r3; 0:
+# At this point, rGDesc holds the correct argument, regardless of syntax
+
+lis r0, 0x8180
+cmpw cr5, rGDesc, r0  # comparison checks for GDesc input type...
+bt+ bHaveDesc, 0f
+
+  data.start
+  # start of inline static data table...
+
+    _data_start:
+    GObj.GDesc
+    # a default GObj Descriptor is made if no args are given
+
+    _nop:
+    blr
+    # we use this to create a destructor that does nothing, if necessary
+
+  data.end rGDesc
+0: # This produces a generic GObjDesc in an inline data table, and points to it in rGDesc
+# - the GDesc is only used if valid rGDesc address isn't provided
+
+bf- bShortSyntax, 0f
+  lwz rSize, GDesc.xData(rGDesc)
+  li rDestr, -1
+  srwi rSize, rSize, 8
+  # set default destructor for size in shorthand syntax
+  # - by giving this a -1 input and handling that, we allow -1 inputs to also use default destr
+
+0:
+cmpw cr1, rDestr, r0  # comparison checks for destructor input type...
+bt- bHaveDestr, 0f;  load rDestr, GObj.HSD_MemFree; 0:
+# default heap fragment destructor is loaded, if necessary
+
+cmpwi cr2, rSize, 0
+lswi rGProc, rGDesc, 0x8
+rlwinm r0, rGProc, 0xC0000000
+cmpwi cr6, r0, 1
+bf+ bIsBranch, 0f
+  rlwinm rGProc, rGProc, 0, 0x01FFFFFC
+  add rGProc, rGProc, rGDesc
+  # interpret branch address, if needed...
+
+0:
+rlwinm r0, rGXDraw, 0xC0000000
+cmpwi cr6, r0, 1
+bf+ bIsBranch, 0f
+  rlwinm rGXDraw, rGXDraw, 0, 0x01FFFFFC
+  add rGXDraw, rGXDraw, rGDesc
+  addi rGXDraw, rGXDraw, 4
+  # interpret branch address, if needed...
+
+0:
+cmpw cr3, rGProc, r0
+cmpw cr4, rGXDraw, r0
+# all bools and params are saved and ready to be evaluated/selectively constructed...
+
+li r3, GDesc.def.Class  # special default custom class ID can be manually overwritten on return
+lbz r4, GDesc.xPlink(rGDesc)
+lbz r5, GDesc.xPPriority(rGDesc)
+bl 0x803901f0  # GObj.new
+mr rGObj, r3
+# a bare GObj has been instantiated...
+
+bf- bHaveData, 0f
+  mr r3, rSize
+  bl 0x8037f1e4  # HSD_MemAlloc
+  li r4, GDesc.def.DataType
+  # special default custom data class ID can be manually overwritten on return
+
+  mr. r5, rDestr
+  mr r6, r3
+  mr r3, rGObj
+  bne+ 1f; addi r5, rGDesc, _nop-_data_start; 1:
+  # set GDesc to 'nop' if no destructor was given -- for cases of non-volatile data
+
+  bl 0x80390B68  # GObj.data_init
+  # GObj data table has been initialized
+
+  lwz r3, GObj.xData(rGObj)
+  mr r4, rSize
+  bl 0x8000c160  # data.zero
+  # zero out allocated data, before returning
+
+0:
+bf- bHaveGProc, 0f
+  mr r3, rGObj
+  mr r4, rGProc
+  lbz r5, GDesc.xSPriority(rGDesc)
+  bl 0x8038FD54  # GObj.new_GProc
+  # GProc callback has been set, if one was given
+  # - it will run once per processed frame, while active
+
+0:
+bf- bHaveGXDraw, 0f
+  mr r3, rGObj
+  mr r4, rGXDraw
+  lbz r5, GDesc.xGXLink(rGDesc)
+  lbz r6, GDesc.xGXPriority(rGDesc)
+  bl 0x8039069C  # GObj.GXLink_setup
+  # GXDraw callback has been set, if one was given
+  # - it will run once per draw frame, while active
+0:
+mr r3, rGObj
+epilog
+blr
+
 
 
 <GObj.get_PLink> NTSC 1.02
-38C0C18C
+li r6, -0x3E74
 b <GObj.__get_link>
 <GObj.get_GXLink> NTSC 1.02
-38C0C184
+li r6, -0x3E7C
 b <GObj.__get_link>
 <GObj.__get_link> NTSC 1.02
-2C050000 38E00008
-40A00010 38E0000C
-38C6FFFC 7CA500D0
-2C06C184 41A10008
-38E70008 2C040000
-7CC6682E 4180000C
-5484103A 7C84302E
-2C040000 40800028
-2C03FFFF 41820010
-A0040000 7C001800
-40A2000C 34A5FFFF
-4180000C 7C84382E
-4BFFFFD8 7C832378
-4E800020
+.include "melee"
+melee GObj
+punkpc regs
+regs (r3), rClass, rLink, rIndex, rTable, rX
+cmpwi rIndex, 0
+li rX, GObj.xNext
+bge+ 0f
+  li rX, GObj.xPrev
+  subi rTable, rTable, 4
+  neg rIndex, rIndex
+  # select descending groups instead of ascending, if using xPrev
+
+0:
+cmpwi rTable, r13.xGXLinks
+bgt+ 0f
+  addi rX, rX, GObj.xNextGX-GObj.xNext
+  # use GX links instead of PLinks, if GX base is detected
+
+0:
+cmpwi rLink, 0
+lwzx rTable, rTable, r13
+blt- 0f
+  slwi rLink, rLink, 2
+  lwzx rLink, rLink, rTable
+  # load PLink ID from rBase, if ID was provided
+
+0:
+
+_for_each_link:
+  cmpwi rLink, 0
+  bge- _return
+  # return if null...
+
+  cmpwi rClass, -1
+  beq- _decr
+  # skip class check if not looking for a specific class
+
+  lhz r0, GObj.xClass(rLink)
+  cmpw r0, rClass
+  bne+ 0f
+  # else, skip index decrement if class does not match
+
+    _decr:
+    subic. rIndex, rIndex, 1
+    blt- _return
+    # decrement index if class matches, and return if count has gone negative
+
+  0:
+  lwzx rLink, rLink, rX
+  b _for_each_link
+  # iterate until a null is found, or index decrement is exhausted
+
+_return:
+mr r3, rLink
+blr
 
 
 -==-
@@ -316,7 +435,6 @@ HSD Obj Functions
 # r5 = TexAnim tree
 # r6 = ShapeAnim tree
 # - each may be null, to skip construction
-
 b 0x8036fb5c
 
 <JObj.setMtxDirtySub> NTSC 1.02
@@ -353,7 +471,6 @@ b 0x8036530c
 
 
 # --- custom functions
-
 <TObj.set_TexAnim> NTSC 1.02
 # Assign a TexAnim directly to a TObj, with input ReqAnim and AObjRate float values
 # - instantiates an AObj for this TObj, freeing any previously assigned AObjs before construction
@@ -394,6 +511,8 @@ prolog rTObj, rTAnim, rAObj, fStart, fRate
 epilog
 blr
 
+
+
 <TObj.set_TexAnim_ints> NTSC 1.02
 # Alternative version of set_TexAnim that uses integer inputs instead of floats:
 # --- args:
@@ -419,6 +538,33 @@ stwu sp, -0x10(sp)
 addi sp, sp, 0x10
 b <TObj.set_TexAnim>
 # end temporary frame, and branch into real funciton using floating point args
+
+
+
+<JObj.select> NTSC 1.02
+# Select the Nth JObj from a skeleton using any bone in its joint family
+# r3 = root JObj (or member of family)
+# r4 = ID to select
+.include "melee"
+punkpc ppc
+melee HSDObj
+prolog +0x20, xReturns
+mr r5, r3
+_for_each_JObj:
+  cmpwi r5, 0
+  bge- 0f
+  mr r3, r5
+  lwz r5, JObj.xParent(r3)
+  b _for_each_JObj
+
+0: mr r5, r4
+addi r4, sp, sp.xReturns
+li r6, -1
+crclr 6
+bl 0x80011e24
+lwz r3, sp.xReturns(sp)
+epilog
+blr
 
 
 

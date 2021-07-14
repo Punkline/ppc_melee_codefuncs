@@ -26,6 +26,7 @@ Cast Integer (r3) into -> Float (f1):
   u0.float   # r3 -> f1 : 0x.FFFFFFFF : 32-bit fraction
 fixed_u32.float  # r3 = int,  r4 = fraction bit count
 
+  s64.float  # r3, r4 -> f1 : -0x7FFFFFFFFFFFFFFF
   s32.float  # r3 -> f1 : -0x7FFFFFFF. : 0-bit fraction
   s24.float  # r3 -> f1 : -0x7FFFFF.FF : 8-bit fraction
   s16.float  # r3 -> f1 : -0x7FFF.FFFF : 16-bit fraction
@@ -48,6 +49,23 @@ float.fixed_u32  # r3 = fraction bit count
   float.s8   # r3 <- f1 : -0x7F.FFFFFF : 24-bit fraction
 float.fixed_s32  # r3 = fraction bit count
 [Punkline]
+<s64.float> NTSC 1.02
+mflr r0
+stwu sp, -0x100(sp)
+stw  r0,  0x100+4(sp)
+stw r10, 0x2C(sp)
+addi r10, sp, 0x10
+stswi r3, r10, 0x1C
+bl 0x80322da0
+addi r10, sp, 0x10
+lswi r3, r10, 0x1C
+lwz r10, 0x2C(sp)
+lwz  r0,  0x100+4(sp)
+addi sp, sp, 0x100
+mtlr r0
+blr
+
+
 <u32.float> ALL
 li r4, 0
 b <fixed_u32.float>
@@ -232,7 +250,7 @@ args: fValue
 <-- rSQRT
 
 
-ps_byte_lerp  # hw accelerated lerps between an array of bytes
+ps_byte_lerp  # hw accelerated lerps between arrays of bytes
 args: rFloor, rCeil, rOut, rCount, fCoef
 <-- rFloor, rCeil, rOut, fCoef
 # - rFloor, rCeil, and rOut are base pointers to arrays
@@ -244,13 +262,6 @@ args: rFloor, rCeil, fCoef
 <-- rFloor, rCeil, rMixed, fCoef
 # - rFloor, rCeil, and rMixed are RGBA colors, not pointers
 # - results are rounded and capped
-
-color.lerpi  # lerp takes 16-bit signed 0x7.FFF fixed point
-args: rFloor, rCeil, rCoef
-<-- rFloor, rCeil, rMixed, fCoef
-# - last 3 hex digits in rCoef are a fraction (12-bit)
-# - equiv floating point is returned in place of fixed point
-
 [?, HSD, Punkline]
 
 
@@ -267,40 +278,69 @@ args: rFloor, rCeil, rCoef
 # r6 = number of bytes (must be even)
 # f1 = interpolation percentage (floor...ceil)
 
-3C000804 7CF7E2A6
-60000804 54C6003C
-7C17E3A6 34C6FFFE
-4180001C 1043338C
-1064338C 10031028
-1000105C 1003338E
-4BFFFFE4 7CF7E3A6
-4E800020
+.include "melee"
+punkpc regs
+regs (r3), rFloor, rCeil, rOut, rCount, rQR
+regs (f1), fCoef, fFloor, fCeil
+lis r0, 0x0804
+mfspr rQR, 919
+ori r0, r0, 0x0804
+rlwinm rCount, rCount, 0, ~1
+mtspr 919, r0
+# set scale, and backup old scale in case it's currently in use
+# - if rCount is odd, it has been floored to an even number
+
+_for_each:
+  subic. rCount, rCount, 2
+  blt- _return
+  # return if count has been exhausted
+
+    psq_lx fFloor, rFloor, rCount, 0, 7
+    psq_lx fCeil, rCeil, rCount, 0, 7
+    ps_sub f0, fCeil, fFloor
+    ps_madds0 f0, f0, fCoef, fFloor
+    psq_stx f0, r3, rCount, 0, 7
+    b _for_each
+    # ... else quickly lerp and cap 2 byte channels, using QR hardware
+    # - lost bits are truncated (floored) without rounding
+
+_return:
+mtspr 919, rQR
+blr
 
 
 <color.lerp> ALL
-7C0802A6 9421FFF0
-90010014 3C003B00
-90610010 90010010
-7CD7E2A6 3C000804
-C0810010 60000804
-90810010 7C17E3A6
-E0417010 E0617010
-10031028 1042202A
-E0617012 1000105C
-E0417012 F0017010
-10031028 1042202A
-1000105C F0017012
-80A10010 7CD7E3A6
-80010014 38210010
-7C0803A6 4E800020
+.include "melee"
+punkpc ppc
+prolog xFloor, xCeil, xOut
+regs (r3), rFloor, rCeil, rOut, rQR
+regs (f1), fCoef, fFloor, fCeil, fRound
+lis r0, 0x3B00
+stw r3, sp.xFloor(sp)
+stw r0, sp.xOut(sp)
+mfspr rQR, spr.qr7
+lis r0, 0x0804
+lfs fRound, sp.xOut(sp)
+ori r0, r0, 0x0804
+stw r4, sp.xCeil(sp)
+mtspr spr.qr7, r0
+psq_l fFloor, sp.xFloor+0(sp), 0, 7
+psq_l fCeil, sp.xCeil+0(sp), 0, 7
+ps_sub f0, fCeil, fFloor
+ps_add fFloor, fFloor, fRound
+psq_l fCeil, sp.xCeil+2(sp), 0, 7
+ps_madds0 f0, f0, fCoef, fFloor
+psq_l fFloor, sp.xFloor+2(sp), 0, 7
+psq_st f0, sp.xOut+0(sp), 0, 7
+ps_sub f0, fCeil, fFloor
+ps_add fFloor, fFloor, fRound
+ps_madds0 f0, f0, fCoef, fFloor
+psq_st f0, sp.xOut+2(sp), 0, 7
+lwz r5, sp.xOut(sp)
+mtspr spr.qr7, rQR
+epilog
+blr
 
-
-<color.lerpi> ALL
-9421FFF0 B0A10010
-3CA00C07 7C17E2A6
-7CB7E3A6 E021F010
-7C17E3A6 38210010
-b <color.lerp>
 
 
 
@@ -332,6 +372,15 @@ b 0x80380528
 # r3 = rRand
 b 0x80380580
 
+<rand.max_int> NTSC 1.02
+# Produces a random integer between 0 and the given number
+# --- args:
+# r3 = rMax
+
+# --- returns:
+# r3 = rRand
+b 0x80380580
+
 <rand.max_float> NTSC 1.02
 # Produces a random float between 0 and the given number
 # --- args:
@@ -339,12 +388,17 @@ b 0x80380580
 
 # --- returns:
 # f1 = fRand
-7C0802A6 9421FFE0
-90010024 D0210010
+mflr r0
+stwu sp, -0x20(sp)
+stw r0, 0x20+4(sp)
+stfs f1, 0x10(sp)
 bl <rand.float>
-C0010010 EC210032
-80010024 38210020
-7C0803A6 4E800020
+lfs f0, 0x10(sp)
+fmuls f1, f1, f0
+lwz r0, 0x20+4(sp)
+addi sp, sp, 0x20
+mtlr r0
+blr
 
 
 
@@ -356,18 +410,35 @@ C0010010 EC210032
 
 # --- returns
 # r3 = rOut
-7C0802A6 9421FFE0
-90010024 BFA10010
-7C7E1B78 3BE3FFFE
-7C9D2379 40810028
-3C600002 3863FFFF
-bl <rand.max_int>
-37BDFFFE 41800010
-B47F0002 4181FFE8
-48000008 987F0002
-7FC3F378 BBA10010
-80010024 38210020
-7C0803A6 4E800020
+.include "melee"
+punkpc ppc
+prolog rOut, rBuffer, rSize
+
+mr rBuffer, r3
+addi rOut, r3, -2
+mr. rSize, r4
+ble- _return
+# only fill if a length was given
+
+_for_n_hwords:
+  lis r3, 2
+  subi r3, r3, 1  # a 17-bit 2's complement modulo should provide good entropy for hword fill
+  bl <rand.max_int>
+  subic. rSize, rSize, 2
+  blt- _for_odd_byte
+  sthu r3, 0x2(rOut)
+  bgt+ _for_n_hwords
+  b _return
+
+_for_odd_byte:
+stb r3, 0x2(rOut)
+# we fill with hwords, but string might be unaligned to hwords
+# - this extra byte at the end handles this case, if it applies
+
+_return:
+mr r3, rBuffer
+epilog
+blr
 
 
 
