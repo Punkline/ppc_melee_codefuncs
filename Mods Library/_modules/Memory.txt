@@ -134,36 +134,70 @@ args: rID  # rID is a number between 0 and 5
  #   - 0x0 = Next frame
  #   - 0x4 = Point to cache alloc
  #   - 0x8 = Frame size
-38A00000
+li r5, 0
 b <mem.__alloc_handler>
 <mem.allocz> NTSC 1.02
-38A00001
+li r5, 1
 b <mem.__alloc_handler>
 <mem.__alloc_handler> NTSC 1.02
-7C0802A6 9421FFB0
-90010054 BF210030
-7F200026 2C030005
-7CA01120 3BE00000
-7C7E1B78 3B600000
-41A1000C 7C7F1B78
-7C9E2378 381E001F
-541D0035 7FE3FB78
-7FC4F378
+.include "punkpc.s"
+punkpc ppc
+prolog +0x20, xReturns, rID, rSize, rAlign, rMeta, rAlloc, rReturns, rCR
+enum (b31), -1, bZero, bTry
+mfcr rCR
+cmpwi r3, 5
+mtcrf 0x01, r5
+li rID, 0
+mr rSize, r3
+li rAlloc, 0
+bgt+ 0f
+  mr rID, r3
+  mr rSize, r4
+  # This initialization sets up both the 1 arg and 2 arg input syntaxes
+  # - now both cases can be treated with the same code
+
+0:
+addi r0, rSize, 0x1F
+rlwinm. rAlign, r0, 0, ~0x1F
+# If not already aligned, pad the size to a ceiling 0x20 byte alignment
+
+mr r3, rID
+mr r4, rSize
 bl <mem.info>
-4F040000 40980038
-4FFFC902 7FE3FB78
-7FC4F378
+mcrf 6, 1
+enum (cr6.lt), +1, bIsAvailable, bIsARAM, bIsHeap
+# bool info about memory query is saved to cr6
+
+bf- bIsAvailable, _return
+crandc bZero, bZero, bIsARAM
+# if cache or heap is currently not available, then return nulls
+
+mr r3, rID
+mr r4, rSize
 bl 0x80015bd0
-7C7B1B78 3B9BFFE0
-41BA000C 7C7C1B78
-83630004 40BF0010
-7F63DB78 7FC4F378
-bl 0x8000c160
-3B410010 4C980000
-7F2BF120 BF7A0000
-7C7AA4AA BB210030
-80010054 38210050
-7C0803A6 4E800020
+# create allocation
+
+mr rAlloc, r3
+subi rMeta, rAlloc, 0x20
+bt+ bIsHeap, 0f
+  mr rMeta, r3
+  lwz rAlloc, 4(r3)
+0: # get rMeta depending on allocation type
+
+bf+ bZero, _return
+  mr r3, rAlloc
+  mr r4, rSize
+  bl 0x8000c160
+  # zero out region, if flagged
+
+_return:
+addi rReturns, sp, sp.xReturns
+mcrf 1, 6
+mtcrf 0xbf, rCR
+stmw rAlloc, 0(rReturns)
+lswi r3, rReturns, 0x14
+epilog
+blr
 
 
 <mem.free> NTSC 1.02
@@ -189,164 +223,962 @@ b 0x8037f1b0
 # --- return:
 # r3 = address of MemDef (or OSArena Pointer variable)
 # r4 = new byte total (or new OSArena push start address)
-3403FFFE 41800024
-3C60803B 6063A380
-1C000010 7C630214
-8003000C 7C840214
-9083000C 4E800020
-80ADBCD0 800DA570
-7CA02850 7C042851
-41A10008 38800000
-2C030000 386DA570
-41820008 386DBCD0
-80830000 7CA40214
-90A30000 4D820020
-7CA42B78 4E800020
+.include "melee"
+melee mem
+punkpc ppc
+regs (r3), rDef, rSize, (r3), rID, rPush, (r4), rPoint
+subic. r0, rID, 2
+blt- _OS_Arena_Definition
 
+  _HSD_Memory_Definition:
+  load rDef, MemDef.addr
+  mulli r0, r0, MemDef.size
+  add rDef, rDef, r0
+  lwz r0, MemDef.xSize(rDef)
+  add rSize, rPush, r0
+  stw rSize, MemDef.xSize(rDef)
+  blr
+
+  _OS_Arena_Definition:
+  lwz r5, r13.xOSArenaHi(r13)
+  lwz r0, r13.xOSArenaLo(r13)
+  sub r5, r5, r0
+  sub. r0, r5, rPush
+  bgt+ 0f; li rPush, 0; 0:
+  # if push would be too large for OSArena, then abort
+
+  cmpwi rID, 0
+  addi rDef, r13, r13.xOSArenaLo
+  beq- 0f;  addi rDef, r13, r13.xOSArenaHi; 0:
+  # else, if ID is 1, then negate push size for adding to descending pointer
+
+  lwz rPoint, 0(rDef)
+  add r5, rPoint, r0
+  stw r5, 0(rDef)
+  beqlr-
+    mr rPoint, r5
+    blr # if ArenaHi, then the top of new push is at start of subtracted offset
 
 <mem.ID> NTSC 1.02
-2C830000 3D208043
-61291F90 80A90000
-39290020 7C032840
-4C002102 38A00000
-38C00000 38E00000
-39000000 39400000
-7CA40120 41A00018
-38800000 810DBCD0
-80EDA570 7D074050
-4E800020 3C808043
-60841FB0 1C030010
-7C840214 80040018
-2C800001 4C840202
-80040014 2C000001
-4C841202 80040010
-2C000002 4CA10B82
-80040000 2C00FFFF
-4CC10B82 4C840020
-40860014 80ADBCC0
-1C00000C 7CA50214
-48000008 80C40004
-3403FFFE 41A00014
-1C000010 7D290214
-8149000C 48000008
-39200000 80E40008
-8104000C 4E800020
+.include "melee"
+melee mem
+punkpc ppc
 
+# register/bool names:
+regs (r3), rID, rMem, rHeap, rCache, rStart, rSize, rDef, rDefSize
+enum (cr1.lt), +1, bIsAvailable, bIsARAM, bIsHeap,  (lt), bInRange
+rGlob = rDef
+
+_start_func:
+cmpwi cr1, rID, 0
+load rGlob, MemGlob.addr
+lwz r5, MemGlob.xIDMax(rGlob)
+addi rDef, rGlob, MemGlob.size
+cmplw rID, r5
+crandc bInRange, lt, cr1.lt
+# bInRange encodes a check to see if given r3 ID is within this counted range
+
+li rHeap, 0
+li rCache, 0
+li rStart, 0
+li rSize, 0
+li rDefSize, 0
+mtcrf 0x40, rHeap
+bt+ bInRange, _region
+# initialize all return values as null, for case of oob
+
+  _arena:
+  li rMem, 0
+  # if the given ID is invalid (like -1), then just return info about OSArena instead
+  # - bool bIsAvailable is still returned false, to reflect bad input ID
+  #   - additionally, rMem will be null
+
+  lwz rSize, r13.xOSArenaHi(r13)
+  lwz rStart, r13.xOSArenaLo(r13)
+  sub rSize, rSize, rStart
+  blr # High is represented as a delta size
+  # - this means that if rSize is returned as '0' -- then the arena is closed
+
+_region:
+load rMem, MemDesc.addr
+mulli r0, rID, MemDef.size
+add rMem, rMem, r0
+lwz r0, MemDesc.xDisabled(rMem)
+cmpwi cr1, r0, 1
+crand bIsAvailable, bIsAvailable, bInRange
+# if xDisabled var is 0 and bInRange, then bIsAvailable
+
+lwz r0, MemDesc.xInit(rMem)
+cmpwi r0, 1
+crand bIsAvailable, bIsAvailable, eq
+# bIsAvailable &= bIsInitialized
+
+lwz r0, MemDesc.xBehavior(rMem)
+cmpwi r0, 2
+crmove bIsARAM, gt
+# ARAM IDs are 3 and 4 -- so if >2, expect ARAM (DRAM) cache instead of normal SRAM
+
+lwz r0, MemDesc.xHeapID(rMem)
+cmpwi r0, -1
+crmove bIsHeap, gt
+# If a Heap ID is >=0, then it is referencing an OSHeap to divert to instead of an HSD cache
+
+bflr- bIsAvailable
+# null init register values and calculated bools are returned if region is not available
+# - if in range, initialized, and not disabled -- then registers are filled with information
+
+_return_info:
+bf- bIsHeap, 0f
+  lwz rHeap, r13.xOSHeapDescs(r13)
+  mulli r0, r0, HeapDesc.size  # r0 still holds xHeapID value
+  add rHeap, rHeap, r0
+  b 1f
+0: lwz rCache, MemDesc.xCache(rMem)
+1: # if bIsHeap then return heap info; else return cache info
+# - the opposite case will have a corresponding null in its return register
+
+subic. r0, rID, 2
+blt+ 0f
+  mulli r0, r0, MemDef.size
+  add rDef, rDef, r0
+  lwz rDefSize, MemDef.xSize(rDef)
+  b 1f
+0: li rDef, 0
+1: # if ID is >=2, then it has a static definition
+# - else, return a null for rDef -- to avoid returning arbitrary data
+
+lwz rStart, MemDesc.xStart(rMem)
+lwz rSize, MemDesc.xSize(rMem)
+blr # return region boundary summary from memory descriptor
 
 
 <mem.static_boundaries> NTSC 1.02
-103C0B3C 41464B4F
-55595D61 656A0000
-80000000 80005940
-803B7240 804316C0
-804D36A0 804D79E0
-804DEC00 804EEC00
-00000000 00000000
-00000000 48454144
-00544558 54004441
-54410042 53530053
-44415441 00544F43
-00525453 004C4F57
-00485344 00484947
-48004653 54000000
+count = 11
+_head:  .byte _bounds-_head, _strings-_head, count
+# 0x0 = offset of boundaries array
+# 0x1 = offset of strings array
+# 0x2 = number of boundary definitions
+# 0x3 = (start of string offset byte array)
+
+.altmacro; i = -1
+.rept count;  i = i+1
+  .irp n, %i; .byte \n\()f-_head; .endr
+.endr; .noaltmacro; .align 2 # emit pointer bytes, to start of each null-terminated string
+# - these are all offsets from base of this data table, at '_head'
+
+_bounds:
+.long 0x80000000  # 0 - "HEAD"    -- these are predictable static boundaries
+.long 0x80005940  # 1 - "TEXT"
+.long 0x803b7240  # 2 - "DATA"
+.long 0x804316c0  # 3 - "BSS"
+.long 0x804D36A0  # 4 - "SDATA"
+.long 0x804D79e0  # 5 - "TOC"
+.long 0x804DEC00  # 6 - "TEMP"
+.long 0x804EEC00  # 7 - "LOW"
+.long 0, 0, 0  # 8, 9, 10  -- these last ones are procedurally written, at runtime
+
+_strings:
+# strings are kept at end of table:
+0:  .asciz "HEAD"
+1:  .asciz "TEXT"
+2:  .asciz "DATA"
+3:  .asciz "BSS"
+4:  .asciz "SDATA"
+5:  .asciz "TOC"
+6:  .asciz "RTS"
+7:  .asciz "LOW"
+8:  .asciz "HSD"
+9:  .asciz "HIGH"
+10: .asciz "FST"
+.align 2
 
 
 <mem.info> NTSC 1.02
-7C0802A6 9421FF90
-90010074 BE010030
-7E000026 7C7E1B78
-7C9D2378 3F808000
-837C00D0 835C0028
-3A210010 7F5AE214
-7D1ED840 7C1AF040
-4D080202
-lis r31, <<mem.static_boundaries>>@h
-ori r31, r31, <<mem.static_boundaries>>@l
-881F0000 7F3F0214
-3C808043 60841F90
-83440010 8A7F0002
-3B13FFFC 83240014
-5718103A 837C0038
-7F19C214 97580004
-97380004 93780004
-bl <mem.ID>
-2C040000 4C804382
-4D040000 4DA21042
-4D8C6342 4D6B5902
-38E00000 39000000
-39200000 39400000
-39600000 39800000
-7CF1C5AA 7E51C4AA
-408801DC 41AD0010
-3860FFFF 2C1E0000
-4D200042 4D8C6042
-41AD00E0 418C0024
-38630001
-bl <mem.ID>
-2C040000 4D000382
-40A8FFB0 4CA54A02
-4C842A02 40A4FFE4
-4CA52902 4C842102
-41A60064 83460004
-7C1ED000 83660008
-4D600042 7C1ED800
-4D6B0202 82A6000C
-4C842342 3A400000
-408BFFB0 2C150000
-4080002C 82550004
-7C1E9000 41A00014
-82750008 7F739214
-7C1ED800 4180000C
-82B50000 4BFFFFD8
-4CA52B42 7E92F050
-48000134 3A400000
-82A50008 40AC0008
-82A50004 2C150000
-40A0FF54 7C1EA800
-82750008 4D600042
-7F759A14 7C1ED800
-3A550020 4D6B0202
-418B000C 82B50004
-4BFFFFD4 4C842342
-4CAC6042 4BFFFFB0
-38000000 90010010
-41A6006C 82A6000C
-8124000C 83150000
-2C180000 4080002C
-394A0001 83350008
-7D8CCA14 2C19000B
-40A1000C 7F2BCB78
-92A10010 7F15C378
-83150000 4BFFFFD4
-7D2C4850 2C1D0009
-81610010 4C800382
-83660008 4D642382
-7D13D850 40840090
-7D334B78 7D124378
-48000074 82A50004
-4D6B5902 40AC0014
-82A50008 7D475378
-7D896378 7D685B78
-2C150000 40800040
-82750008 418C000C
-7C1D9800 4D600382
-7C135800 394A0001
-41A0000C 7E6B9B78
-92A10010 7D8C9A14
-398C0020 3A550020
-82B50004 418B0008
-4BFFFFC0 4C8B6102
-4D8C5B82 81610010
-408CFE3C 4D085A02
-40880044 7E51C5AA
-7CF1C4AA 41850038
-8ADF0002 8B3F0000
-7F39FA14 36D6FFFF
-41820014 56DD103A
-7F59E82E 7C12D000
-4180FFEC 8B3F0001
-7F39FA14 7FB9B0AE
-7EFFEA14 7E0BF120
-BA010030 80010074
-38210070 7C0803A6
-4E800020
+.include "melee"
+melee mem
+punkpc ppc
+prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rString, rStatic, rMeta, rOffset, rSize, rStart, rReturns, rCR, xBiggest, +0x20, xReturns
+  # saved registers, and temp workspace in sp
+
+  regs (r3), rID, rMem, rHeap, rCache, rFCount, rFBig, rFTotal, rACount, rABig, rATotal
+  # returned registers (for failed parse)
+
+  enum (cr1.lt), +1, bIsAvailable, bIsARAM, bIsHeap, (eq), bInvalid
+  # bools used in parse/return
+
+  enum (cr2.lt), +1, bIsValid, bMatchRAM, bMatchType, bMatch, bPass, bCheckSize
+  # bools used in parse
+
+  enum.enum_conc "OS.",, (0x28), xSRAMSize, (0xD0), xDRAMSize, (0x38), xFSTStart
+  # - various OS params, in static OS head (low 256 bytes of SRAM)
+
+  enum.enum_conc "datahead.",, (0), +1, xBoundaries, xStrings, xCount, size
+  # - custom data in rData has a header with 3 bytes, followed by an array of byte pointers
+
+
+  rGlob = rMem
+  bInRegion = bIsAvailable
+  bIsAllocated = bIsARAM
+  # aliases
+
+  mfcr rCR
+  mr rArg, r3
+  mr rArg2, r4
+  lis rOS, 0x8000
+  lwz rHigh, OS.xDRAMSize(rOS)
+  lwz rLow, OS.xSRAMSize(rOS)
+  addi rReturns, sp, sp.xReturns
+  add rLow, rLow, rOS
+  cmplw cr2, rArg, rHigh
+  cmplw rLow, rArg
+  crand bIsValid, bIsValid, lt
+  # validity requires that r3 be within ID, SRAM or DRAM integer range
+
+  lis r31, <<mem.static_boundaries>>@h
+  ori r31, r31, <<mem.static_boundaries>>@l
+  # rData is now pointing to static boundaries data table
+  # - since the last 4 boundaries are decided by moddable circumstances, they must be updated
+
+
+  lbz r0, datahead.xBoundaries(rData)
+  add rThis, rData, r0
+  # rThis points to base of word-aligned boundary definitions
+
+  load rGlob, MemGlob.addr
+  lwz rLow, MemGlob.xSRAMLo(rGlob)
+  lbz rSize, datahead.xCount(rData)
+  subi rNext, rSize, 4
+  lwz rThis, MemGlob.xSRAMHi(rGlob)
+  slwi rNext, rNext, 2
+  lwz rHigh, OS.xFSTStart(rOS)
+  add rNext, rThis, rNext
+  stwu rLow, 0x4(rNext)   # 8 = HSD
+  stwu rThis, 0x4(rNext)  # 9 = HIGH
+  stw rHigh, 0x4(rNext)   # 10 = FST
+  # moddable boundaries are procedurally sampled, updating the static boundaries list
+
+  bl <mem.ID>  # returns rID, rMem, rHeap, rCache, and cr1 bools
+  cmpwi rMem, 0
+  cror cr1.lt, lt, bIsValid
+  mcrf 2, 1
+  # combine check for valid ID with previous check for Addr ranges...
+  # - we move the cr2 bool over to cr1 before copying it back over after combination with whole CRF
+
+  crnot bCheckSize, eq
+  crset bPass
+  crclr bMatch
+  # initialize other bools
+
+  _init_nulls:
+  load rFCount, 0, 0, 0, 0, 0, 0
+  stswi rFCount, rReturns, 6<<2
+  lswi rStart, rReturns, 6<<2
+  # initialize the remaining nulls for return, or start of loop
+  # - if bIsValid == False, then r4, r5, r6 are null from <mem.ID> return
+
+  bf- bIsValid, _return
+  # At this point, bIsValid represents a Validated ID, SRAM Addr, or DRAM Addr...
+  # - if none of those are detected, then just return the above nulls as an error
+
+  bt+ bCheckSize, _loop
+  # ... else, branch into corresponding initialization using recognized input type
+
+    li rID, -1
+    # if checking for addresses, then we don't know what region it is in
+    # - we check each region of matching RAM type detected in bMatchRAM
+
+    cmpwi rArg, 0
+    crnot bMatchRAM, lt
+    # Set MatchRAM bool according to sign in rArg
+    # - True means it is ARAM (DRAM)
+
+
+
+_loop:
+  crnot bPass, bPass
+  # - 2 passes, indexed by bool 'bPass'
+
+  # setup logic:
+  bt+ bCheckSize, _check_size_start
+    bt- bPass, 1f
+
+      _next_ID:
+      addi rID, rID, 1
+      bl <mem.ID>
+      cmpwi rMem, 0
+      crmove bIsValid, lt
+      bf- bIsValid, _init_nulls
+      # if all valid IDs are parsed without a match, then return nulls
+
+      crand bIsARAM, bIsARAM, bMatchRAM
+      crand bIsAvailable, bIsAvailable, bIsARAM
+      bf- bIsAvailable, _next_ID
+      # if region doesn't match RAM type of query, then skip it
+
+    1:
+    crclr bIsAllocated
+    crclr bInRegion
+    bt+ bIsHeap, _heap_addr
+
+
+
+      _cache_addr:
+      lwz rLow, CacheDesc.xLow(rCache)
+      cmpw rArg, rLow
+      lwz rHigh, CacheDesc.xHigh(rCache)
+      crnot bMatch, lt
+      cmpw rArg, rHigh
+      crand bMatch, bMatch, lt
+      lwz rMeta, CacheDesc.xMeta(rCache)
+      crset bInRegion
+      li rStart, 0
+      bf+ bMatch, _next_ID
+
+        # for cache addr subloop, we just check each alloc
+        # - if alloc isn't found, but still in range -- then arg is part of free space
+        2:  cmpwi rMeta, 0
+        bge- _cache_addr_is_free
+        lwz rStart, CacheMeta.xAlloc(rMeta)
+        cmpw rArg, rStart
+        blt+ 3f
+          lwz rSize, CacheMeta.xSize(rMeta)
+          add rHigh, rSize, rStart
+          cmpw rArg, rHigh
+          blt- _cache_addr_is_alloc
+        3: lwz rMeta, CacheMeta.xNext(rMeta)
+        b 2b
+
+        _cache_addr_is_alloc:
+        crset bIsAllocated
+
+        _cache_addr_is_free:
+        _set_offset:
+        sub rOffset, rArg, rStart
+        b _return
+
+
+
+    _heap_addr:
+    li rStart, 0
+    lwz rMeta, HeapDesc.xAlloc(rHeap)
+    bf+ bPass, 1f
+      lwz rMeta, HeapDesc.xFree(rHeap)
+    1: # for heap addr subloop, we need to check both allocated and free fragments one by one
+       # - this is done in 2 passes, signified by the bPass bool
+
+      cmpwi rMeta, 0
+      bge- _loop
+      cmpw rArg, rMeta
+      lwz rSize, HeapMeta.xSize(rMeta)
+      crnot bMatch, lt
+      add rHigh, rMeta, rSize
+      cmpw rArg, rHigh
+      addi rStart, rMeta, 0x20
+      crand bMatch, bMatch, lt
+      # we include 0x20 byte meta header in alloc space for complete contiguity
+
+      bt- bMatch, _heap_addr_match
+        lwz rMeta, HeapMeta.xNext(rMeta)
+        b 1b
+
+    _heap_addr_match:
+    crset bInRegion
+    crnot bIsAllocated, bPass
+    b _set_offset
+    # Heap address match measures each individual fragment
+    # - this includes hacked fragments in regions normally OOB to the heap
+
+
+
+  _check_size_start:
+  # if checking for size, then rArg2 contains a size query, and rID is the selected region
+
+  li r0, 0
+  stw r0, sp.xBiggest(sp)
+  # - biggest sample is reset to null
+
+  bt+ bIsHeap, _heap_size
+
+    _cache_size:
+    lwz rMeta, CacheDesc.xMeta(rCache)
+    lwz rFTotal, MemDesc.xSize(rMem)
+    lwz rNext, CacheMeta.xNext(rMeta)
+    0: cmpwi rNext, 0
+      bge- 0f
+        addi rACount, rACount, 1
+        lwz rThis, CacheMeta.xSize(rMeta)
+        add rATotal, rATotal, rThis
+        cmpwi rThis, rABig
+        ble+ 1f;
+          mr rABig, rThis
+          stw rMeta, sp.xBiggest(sp)
+          # sample biggest by storing metadata pointer in temp workspace
+
+        1:
+        mr rMeta, rNext
+        lwz rNext, CacheMeta.xNext(rMeta)
+        b 0b  # count bytes in each push of the cache stack
+
+    0: sub rFTotal, rFTotal, rATotal
+    # calculate total free bytes by subtracting counted bytes from defined total
+
+    cmpwi rArg2, rFTotal
+    lwz rABig, sp.xBiggest(sp)
+    crmove bIsAvailable, lt
+    lwz rHigh, CacheDesc.xHigh(rCache)
+    crmove bMatch, bIsAvailable
+    sub rFBig, rHigh, rSize
+    # finally, see if query size fits within calculated free bytes
+
+    bf- bIsAvailable, _check_for_static_boundary
+    # if not, then return the current state of the parser
+
+    mr rSize, rFTotal
+    mr rStart, rFBig
+    # - this returns the rF* and rA* for information about the memory region
+
+    b _return
+    # else, return match values, with bIsAvailable = True
+    # - since there is no real fragment for free cache space, we subtract remaining bytes from ceil
+
+  _heap_size:
+  lwz rMeta, HeapDesc.xFree(rHeap)
+  crclr bMatch
+  bf+ bPass, 0f
+    lwz rMeta, HeapDesc.xAlloc(rHeap)
+    mr rFCount, rACount
+    mr rFTotal, rATotal
+    mr rFBig, rABig
+    # search for free heap fragments first, to confirm if space is/isn't available
+
+    0:
+      cmpwi rMeta, 0
+      bge- 0f
+      lwz rSize, HeapMeta.xSize(rMeta)
+      bt- bPass, 1f
+        cmpw rArg2, rSize
+        crmove bMatch, lt
+
+      1:
+      cmpw rSize, rABig
+      addi rACount, rACount, 1
+      blt+ 1f;
+        mr rABig, rSize
+        stw rMeta, sp.xBiggest(sp)
+        # sample biggest by storing metadata pointer in temp workspace
+
+      1:
+      add rATotal, rATotal, rSize
+      addi rATotal, rATotal, 0x20
+      addi rStart, rMeta, 0x20
+      lwz rMeta, HeapMeta.xNext(rMeta)
+      bt- bMatch, 0f
+      b 0b  # check for match
+
+    0: crandc bIsAvailable, bMatch, bPass
+    cror bPass, bPass, bMatch
+    lwz rABig, sp.xBiggest(sp)
+    bf+ bPass, _loop
+    # if found in first pass, flag bIsAvailable, else set to false
+    # else, second pass checks allocs and does not flag bIsAvailable on match
+
+
+
+
+
+
+
+
+
+
+
+
+  _return:
+  crand bIsValid, bIsValid, bMatch
+  bf- bIsValid, _exit
+  # if valid input was not given, then only a summary of the parse is returned (from working regs)
+
+  stswi rStart, rReturns, 6<<2
+  lswi mem.info.rStart, rReturns, 6<<2
+  # else, copy returns from saved registers over to return registers
+  # - this only applies to successful queries
+
+
+  # Additionally, we want to return a static boundary if successfuly query is in SRAM:
+
+  _check_for_static_boundary:
+  bt- bIsARAM, _exit
+  # the audio samples in ARAM are not well enough documented to label them (at this time)
+  # - if info is for ARAM address (DRAM), then no static boundary ID is given
+
+  rX = rArg2
+  # temp aliases, for registers no longer being used
+
+  lbz rStatic, datahead.xCount(rData)
+  lbz rThis, datahead.xBoundaries(rData)
+  add rThis, rThis, rData
+  # prepare for lwzx index parse...
+
+  _find_static_boundary:
+    subic. rStatic, rStatic, 1
+    beq- 0f
+    slwi rX, rStatic, 2
+    lwzx rLow, rThis, rX
+    cmpw rStart, rLow
+    blt+ _find_static_boundary
+  0:
+  lbz rThis, datahead.xStrings(rData)
+  add rThis, rThis, rData
+  lbzx rX, rThis, rStatic
+  add rString, rData, rX
+  # return static boundary region ID and associated string label
+
+_exit:
+mtcrf 0xBF, rCR
+epilog
+blr
+
+
+
+-==-
+
+Data Functions
+
+data.strcmp  # Compare 2 null-terminated strings
+args: rA, rB
+ <-- rBool
+
+data.cmp  # compare 2 lengths of binary
+args: rA, rB, rSize
+ <-- rBool
+
+data.point  # relocate various input types as pointer outputs
+args: rAddr   # type 1: Address of branch instruction (or pointer)
+args: rOffset, rAddr  # type 2: relocation from pointer
+args: rOffset, rBranch  # type 3: relocation from branch
+ <-- rAddr, rBase, rOffset
+ <-- cr1.lt: bValidAddr,  cr1.gt: bIsBranch
+# - all output pointers from branches are considered valid
+
+
+data.zero  # fill out given area with zero
+args: rData, rSize
+
+data.fill  # fill out given area with a byte value
+args: rData, rFill, rSize
+
+data.copy  # Copies data from r4 over to r3
+args: rDest, rSource, rSize
+# - ARAM addresses are accepted for rSource/rDest
+# - DMA request for ARAM is slow, but faster than DVD
+
+data.copy_async  # Use async DMA queue with custom callback
+args: rDest, rSource, rSize, rCallback, rCallbackArg
+# - intended for ARAM <> SRAM copies
+# - rCallback will be executed once copy has finished
+
+  (sync callback arguments)
+  args: rCallbackArg
+
+
+data.async_info  # return info about pending async copies
+args: rQuery  # for matching rDest, rSource, rCB, or rArg
+ <-- rAsync, rDest, rSource, rSize, rCB, rArg, rGlob, rQuery
+ <-- cr1.lt: bNotSynced,  cr1.gt: bMatch,  cr1.eq: bSynced
+
+ rAsync  # Async ARAM Copy queue info struct...
+0x00 : POINT : to next info struct in queue
+0x04 : WORD  : Link ID -- 0=free, 1=async, 2=synced
+0x08 : POINT : to other struct + 8 (no header) ???
+0x0C : POINT : to header (offset 0x00)
+0x10 : FLAG? : usually '1'
+0x14 : ???
+0x18 : POINT : to Source address, for copy  (SRAM or DRAM)
+0x1C : POINT : to Destination address       (SRAM or DRAM)
+0x20 : WORD  : Size of remaining copy job (in bytes)
+0x24 : POINT : to Event Handler  (used by DMA queue?)
+0x28 : POINT : to Sync Callback  (provided by user)
+0x2C : WORD  : Callback Argument (for sync callback)
+
+rGlob # ARAM Async Info Globals...
+# - these correspond with the Link ID:
+0x00 : POINT : to list of currently free descriptors
+0x04 : POINT : to list of currently queued descriptors
+0x08 : POINT : to list of synced descriptors ready for callback
+
+data.sync_to  # sync to a matching .async_info query
+args: rQuery
+data.sync_until  # sync until a minimum of N queued asyncs
+args: rCount
+data.sync_next  # sync until the next queued async begins
+data.sync  # sync all queued async data copies
+# - all asyncs automatically sync when 4 or more asyncs are in queue
+# - syncing will cause the CPU to stall until data copy completes
+
+data.flush_DC  # flush data cache
+args: rAddr, rSize
+# - prevents race conditions with hardware accessing SRAM
+
+data.flush_IC  # flush instruction cache
+args: rAddr, rSize
+# - forces written ppc instructions to be newly-interpreted
+
+[Punkline]
+<data.point> NTSC ALL
+lt=0; gt=1; eq=2; bValidAddr=4; bIsBranch=5
+lis r0, 0x8180
+cmpw r3, r0
+blt- 0f
+  lwz r4, 0(r3)
+  li r3, 0
+0: cmpw cr1, r4, r0
+andis. r0, r4, 0x4000
+mr r5, r3
+crandc bIsBranch, gt, bValidAddr
+bf+ bIsBranch, 0f
+  rlwinm r0, r4, 6, 0xFFFFFF80
+  add r4, r4, r0
+lwz r0,
+
+
+<data.zero> NTSC 1.02
+b 0x8000c160
+<data.fill> NTSC 1.02
+b 0x80003130
+<data.copy> NTSC 1.02
+cmpwi r3, 0
+bge- 0f
+  cmpwi r4, 0
+  bge- 0f
+    b 0x800031f4
+0: li r6, -1
+b <data.copy_async>
+# using -1 as callback arg causes auto-sync callback to be used
+
+
+
+<data.copy_async> NTSC 1.02
+# Copies data from r4 over to r3, allowing for ARAM addresses and sync callbacks
+# - If a -1 is used in place of a callback address, this will become a sync copy instead of async
+# - otherwise, the CPU will not wait for ARAM on return, allowing for immediate action
+#   - the data being copied however will not be available for processing until ARAM has synced
+
+# --- args:
+# r3 = rCopy  - Copy data TO this address
+# r4 = rFrom  - Copy data FROM this address
+# r5 = rSize
+# r6 = rSync  - sync callback, executes once the ARAM copy has finished
+# r7 = rArg   - sync callback argument, gets passed as r3 to rSync when executed
+
+
+max_count = 4
+# this is the numebr of async queue slots (out of ~8) to allow for simultaneous use
+# - if more than this many reads are queued, then func will wait to sync before starting new stream
+
+_func_copy_async:
+mflr r0
+stwu sp, -0x40(sp)
+stw  r0,  0x40+4(sp)
+addi r10, sp, 0x10
+stswi r3, r10, 0x1C
+  li r3, max_count
+  bl <data.sync_until>
+  addi r10, sp, 0x10
+lswi r3, r10, 0x1C
+
+b _end_of_data
+# - branch over inline data
+
+  _get_data: blrl
+    _sync_callback:
+    li r0, 1
+    stw r0, 0(r3)
+    blr # set flag once synced
+
+  _data:
+  .long 0
+
+_end_of_data:
+cmpwi r6, -1
+bne- _async
+# -1 is a special keyword for auto-syncing (used by <copy.ARAM_sync>, and <copy>)
+
+  _auto_sync:
+  bl _get_data
+  mflr r6
+  li r0, 0
+  addi r7, r6, _data - _sync_callback
+  stw r0, 0(r7)
+  stw r7, 0x10(sp)
+  bl _func_ARAM_write
+  # if -1 was detected, we set up an auto-sync callback
+
+    _still_syncing:
+    lwz r3, 0x10(sp)
+    lwz r0, 0(r3)
+    cmpwi r0, 0
+    bne- _return
+      b _still_syncing
+      # loop until synced
+
+_async:
+bl _func_ARAM_write
+# custom callbacks can handle sync on their own
+
+_return:
+lwz  r0,  0x40+4(sp)
+addi sp, sp, 0x40
+mtlr r0
+blr
+
+_func_ARAM_write:
+mflr r0
+lis r8, 0x8043
+stw r0, 0x0004 (sp)
+stwu sp, -0x0058 (sp)
+stmw r23, 0x0034 (sp)
+mr  r25, r4  # r25 = Source of copy
+mr. r26, r3  # r26 = Destination of copy
+mr  r27, r5  # r27 = Size
+mr  r23, r6  # r23 = Callback
+mr  r24, r7  # r24 = Callback Argument
+ori r31, r8, 0x16c0
+# r31 = base of ARAM DMA queue structure -- 804316c0
+
+mr r4, r27   # r4 = size to invalidate or store in Data Cache (DC)
+bge- 0f
+
+  # --- ARAM to RAM
+  li r29, 1
+  mr r3, r26     # r3 = RAM destination,  r4 = size
+  bl 0x803447DC  # DC Invalidate
+  b 1f
+
+  0: # --- RAM to ARAM
+  li r29, 0
+  mr r3, r25     # r3 = RAM source,  r4 = size
+  bl 0x80344840  # DC Store
+
+1: # r29 = copy op type, for queue request call arguments
+# (we also swap the source/destination regs if writing, so that op type correctly selects them)
+
+bl 0x80347364  # disable interrupts
+addi r30, r3, 0
+# r30 = backup interrupt flags
+
+lwz r28, 0x1e0(r31)   # r28 = old queue pointer
+stw r23, 0x28 (r28) # storing callback
+stw r24, 0x2C (r28) # storing callback arg
+mr r23, r29
+# r23 and r24 are now safe to use
+
+addi r29, r31, 0x1e0  # r29 = address of queue pointer
+lwz r0, 0 (r28)       # r0 = link from old pointer
+stw r0, 0 (r29)       # --- push stack with link from old pointer
+
+addi r3, r31, 0x1e4
+b 0f # seems to be some other list pointer at 0x4 of element
+
+1:
+mr r3, r0
+
+0: lwz r0, 0 (r3)   # follow other list links until a null terminator is found
+  cmplwi r0, 0
+  bne+ 1b
+  # r3 = last element in list
+
+stw r28, 0 (r3)  # store old pointer in 0x4 of last element
+li r3, 0
+li r4, 1  # State of async
+stw r3, 0x0(r28)
+stw r4, 0x4(r28)  # some kind of metadata for informing the queue request
+
+lis r3, 0x8001
+addi r10, r3, 0x4AC4  # r10 = 80014AC4  -- callback event handler, for input callback and arg
+addi r3, r28, 8  # r3 = base starting at 0x8 of element
+mr r4, r28     # r4 = base of element (the metadata we just created)
+mr r5, r23     # r5 = copy operation type (0 = write to ARAM,  1 = read from ARAM)
+xori r6, r5, 1 # r6 = inverted type
+mr r7, r25     # r7 = source
+mr r8, r26     # r8 = destination
+mr r9, r27     # r9 = size
+b 0x80014c90  # branch into the middle of the ARAM read func from the Archive library
+# - the stack frame and register context has been carefully designed to mimic this function
+
+<data.strcmp> NTSC 1.02
+b 0x803258e8
+<data.cmp> NTSC 1.02
+b 0x803258a8
+<data.flush_DC> NTSC 1.02
+b 0x8034480c
+<data.flush_IC> NTSC 1.02
+b 0x8000543c
+
+
+
+<data.async_info> NTSC 1.02
+# Get info about queued ARAM DMA copy jobs based on input query
+
+# --- args:
+# r3 = rQuery -- compared against rAsync, rDest, rSource, rCB, rArg for matches
+
+# --- returns:
+# cr1.lt = bNotSynced  -- 'matched async is not done copying'
+# cr1.gt = bMatch      -- 'match found'
+# cr1.eq = bSynced     -- 'no match found' (if input was valid, this means it synced already)
+# r3 = rAsync   -- async info (null if no match)
+# r4 = rDest   -- copy destination
+# r5 = rSource -- copy source
+# r6 = rSize   -- copy size
+# r7 = rCB     -- callback argument
+# r8 = rArg    -- callback address
+# r9 = rGlob   -- global pointers
+# r10 = rQuery -- (given query)
+
+# --- ARAM Async Info descriptor - 10 (?) 0x30-byte structures starting at 0x804316c0
+# 0x00 : POINT : to next info struct in queue
+# 0x04 : WORD  : Link ID -- 0=free, 1=async, 2=synced
+# 0x08 : POINT : to other struct + 8 (no header) ???
+# 0x0C : POINT : to header (offset 0x00)
+# 0x10 : FLAG? : usually '1'
+# 0x14 : ???
+# 0x18 : POINT : to Source address, for copy  (SRAM or DRAM)
+# 0x1C : POINT : to Destination address       (SRAM or DRAM)
+# 0x20 : WORD  : Size of remaining copy job (in bytes)
+# 0x24 : POINT : to Event Handler  (used by DMA queue?)
+# 0x28 : POINT : to Sync Callback  (provided by user)
+# 0x2C : WORD  : Callback Argument (for sync callback)
+
+# --- ARAM Async Info Globals - starting at 0x804316c0 + 0x1E0
+# - these correspond with the Link ID:
+# 0x00 : POINT : to list of currently free descriptors
+# 0x04 : POINT : to list of currently queued descriptors
+# 0x08 : POINT : to list of synced descriptors ready for callback
+
+
+.include "melee"
+punkpc ppc
+melee mem
+regs (r3), +1, rAsync, rDest, rSource, rSize, rCB, rArg, rGlob, rQuery
+enum (cr1.lt), bNotSynced, bMatch, bSynced   # returned bools
+bLast = bNotSynced
+mr rQuery, r3
+cmpwi rQuery, -1
+load rGlob, data.async_glob.addr
+lwz r0, data.async_glob.xAsync(rGlob)
+crclr bMatch
+crmove bLast, eq
+# if the query is given as -1, then return last available async in queue
+
+_for_each_pending:
+  mr. rAsync, r0
+  bge- _return
+  # return without updating default cr1 values if no match is found in queued
+
+  lwz r0, data.async_info.xNext(rAsync)
+  cmpwi r0, 0
+  crandc bMatch, bLast, lt
+  cmpw rAsync, rQuery
+  cror bMatch, bMatch, eq
+  lwz rDest, data.async_info.xDest(rAsync)
+  cmpw rDest, rQuery
+  lwz rSource, data.async_info.xSource(rAsync)
+  cror bMatch, bMatch, eq
+  cmpw rSource, rQuery
+  lwz rCB, data.async_info.xSyncCB(rAsync)
+  cror bMatch, bMatch, eq
+  cmpw rCB, rQuery
+  lwz rArg, data.async_info.xSyncArg(rAsync)
+  cror bMatch, bMatch, eq
+  cmpw rArg, rQuery
+  lwz rSize, data.async_info.xSize(rAsync)
+  cror bMatch, bMatch, eq
+  bf+ bMatch, _for_each_pending
+
+_return:
+crnot bSynced, bMatch
+crnot bNotSynced, bSynced
+# set bools according to bMatch
+# - these are formatted to be similar to DVD async_info returns, even though they are redundant...
+
+blr
+
+
+
+<data.sync> NTSC 1.02
+li r3, -1
+b <data.sync_to>
+
+<data.sync_next> NTSC 1.02
+lis r3, 0x8043
+lwz r3, 0x16c0+0x1e4(r3)
+b <data.sync_to>
+
+<data.sync_to> NTSC 1.02
+.include "melee"
+punkpc ppc
+melee mem
+prolog rMSR
+
+mfmsr rMSR
+rlwinm r0, rMSR, 0, ~0x8000
+mtmsr r0
+bl <data.async_info>
+# get async info without interrupts enabled, to prevent messing up return epilog
+
+bt- data.async_info.bSynced, _return
+# skip if query wasn't found, or currenty in the middle of sync event...
+
+  ori r0, rMSR, 0x8000
+  mtmsr r0
+  # else enable interrupts while syncing in continuous thread...
+
+  _while_not_synced:
+    lwz r0, data.async_glob.xSynced(data.async_info.rGlob)
+    cmpwi r0, 0
+    blt- _return
+    # abort if a sync event is ready...
+
+    lwz r0, data.async_info.xStatus(data.async_info.rAsync)
+    cmpwi r0, 1
+    beq+ _while_not_synced
+    # wait until status flag changes on sync...
+
+_return:
+mtmsr rMSR
+epilog
+blr
+
+
+
+<data.sync_until> NTSC 1.02
+.include "melee"
+punkpc ppc
+melee mem
+
+regs (r3), +1, rTarget, rBase, rCount, rX,
+load rBase, data.async_info.addr
+
+_try_again:
+lwz r0, (data.async_glob.addr + data.async_glob.xSynced) - data.async_info.addr (rBase)
+cmpwi r0, 0
+bltlr-
+# skip if currently in sync event...
+
+li rCount, 0
+li rX, (8*data.async_info.size) + data.async_info.xStatus
+  _while_target_not_reached:
+    subic. rX, rX, data.async_info.size
+    blt- 0f
+      lwzx r0, rBase, rX
+      cmpwi r0, 1
+      bne- _while_target_not_reached
+        addi rCount, rCount, 1
+        b _while_target_not_reached
+        # count the number of pending async copies
+  0:
+  cmpw rTarget, rCount
+  blt- _try_again
+  # if the count > target, then wait until some have synced by trying again
+
+blr
