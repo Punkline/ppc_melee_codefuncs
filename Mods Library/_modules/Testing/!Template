@@ -1,0 +1,83 @@
+-==-
+!
+CSS TESTS - TEMPLATE
+[Punkline]
+Revision ---- DOL Offset ---- Hex to Replace ---------- ASM Code -
+NTSC 1.02 --- 0x80260c14 ---- 88030002 -> Branch
+.include "melee";
+punkpc ppc          # powerpc utilities
+melee MPad, HSDObj   # controller pad symbols and HSD Symbols
+regs -1, /*
+*/ (r31), rHand, rBase, rHandJObj, rInput, /*
+*/ (r24), rIcon, rBackup, /*
+*/ (r20), rIconID, rPlayerID
+
+# -- these registers help us understand the context of this injection point
+# 803f0a48 = base address in rBase
+
+r13.xCSSJObjRoot    = -0x49E0
+# r13 offset of root JObj for CSS icons/portraits
+
+enum (0x80), +1, SFX.true, SFX.false
+# SFX IDs
+
+mr rIcon, r3
+mr rBackup, r4
+prolog r16, +0x100, xReturns
+# create stack frame to protect our registers, as part of the template...
+
+regs /*
+*/ (r27), rData, rSFX, rMPad, /*
+*/ (r22), rStart, rRoot
+
+# -- these registers are used just for this code, and have nothing to do with injection context
+
+load rMPad, MPad.addr
+mulli r0, rPlayerID, MPad.size
+add rMPad, rMPad, r0
+lwz r0, MPad.xOnPress(rMPad)
+mtcrf MPad.crf.mDPad, r0
+addi rStart, rBase, 0x803f0b24 - 0x803f0a48
+rlwinm. r0, r0, 0, MPad.mDPad
+lwz rRoot, r13.xCSSJObjRoot(r13)
+beq- _return
+# rStart = the start of the array of elements rIcon is pointing to
+# rRoot  = the root JObj of the CSS menu
+
+data.start
+
+  # <-- put data here
+
+data.end rData
+li rSFX, SFX.false
+
+bt- MPad.bDDown, _DDown
+bt- MPad.bDUp, _DUp
+bt- MPad.bDLeft, _DLeft
+bt- MPad.bDRight, _DRight
+b _return
+# The DPad bools encode a conditional branch to a programmable handler...
+
+  _DDown:
+  # <-- write handler here
+
+
+  _DUp:
+  # <--
+
+  _DLeft:
+  # <--
+
+  _DRight:
+  # <--
+
+
+_return:
+epilog
+mr r4, rBackup
+mr r3, rIcon
+# recover old context before finishing injection code...
+
+# original instruction, and return from injection:
+lbz	r0, 0x0002 (r3)
+.long 0
