@@ -1,0 +1,97 @@
+-==-
+Mem.info ID test
+
+press dpad up/down on CSS to select a new memory region, and dpad left/right to print info about it
+[Punkline]
+Revision ---- DOL Offset ---- Hex to Replace ---------- ASM Code -
+NTSC 1.02 --- 0x80260c14 ---- 88030002 -> Branch
+.include "melee";
+punkpc ppc          # powerpc utilities
+melee MPad, HSDObj, mem   # controller pad symbols and HSD Symbols
+regs -1, /*
+*/ (r31), rHand, rBase, rHandJObj, rInput, /*
+*/ (r24), rIcon, rBackup, /*
+*/ (r20), rIconID, rPlayerID
+
+# -- these registers help us understand the context of this injection point
+# 803f0a48 = base address in rBase
+
+r13.xCSSJObjRoot    = -0x49E0
+# r13 offset of root JObj for CSS icons/portraits
+
+enum (0x80), +1, SFX.true, SFX.false
+# SFX IDs
+
+mr rIcon, r3
+mr rBackup, r4
+prolog r16, +0x100, xReturns, cr
+# create stack frame to protect our registers, as part of the template...
+
+regs /*
+*/ (r27), rData, rSFX, rMPad, /*
+*/ (r22), rStart, rRoot, /*
+*/ (r18), rArgs, rString
+rFSize = rSFX
+rASize = rMPad
+
+# -- these registers are used just for this code, and have nothing to do with injection context
+
+load rMPad, MPad.addr
+mulli r0, rPlayerID, MPad.size
+add rMPad, rMPad, r0
+lwz r0, MPad.xOnPress(rMPad)
+mtcrf MPad.crf.mDPad, r0
+addi rStart, rBase, 0x803f0b24 - 0x803f0a48
+rlwinm. r0, r0, 0, MPad.mDPad
+lwz rRoot, r13.xCSSJObjRoot(r13)
+beq- _return
+# rStart = the start of the array of elements rIcon is pointing to
+# rRoot  = the root JObj of the CSS menu
+
+data.start
+  0: .long 0
+
+  data.struct 0, "data.", xMemory
+  # these are now offset names we can use to reference the above static data
+
+data.end rData
+li rSFX, SFX.true
+lwz r3, data.xMemory(rData)
+bt- MPad.bDDown, _DDown
+bt- MPad.bDUp, _DUp
+bt- MPad.bDLeft, _DLeft
+bt- MPad.bDRight, _DRight
+b _return
+# The DPad bools encode a conditional branch to a programmable handler...
+
+  _DDown:
+  subic. r3, r3, 1
+  bge+ 0f; li r3, 5; 0:
+  stw r3, data.xMemory(rData)
+  b _play_SFX
+
+  _DUp:
+  addi r3, r3, 1
+  cmpwi r3, 5
+  ble+ 0f; li r3, 0; 0:
+  stw r3, data.xMemory(rData)
+  b _play_SFX
+
+  _DLeft:
+  _DRight:
+  li r4, -1
+  bl <log.mem.info>
+
+  _play_SFX:
+  mr r3, rSFX
+  bl <SFX.play>
+
+_return:
+epilog
+mr r4, rBackup
+mr r3, rIcon
+# recover old context before finishing injection code...
+
+# original instruction, and return from injection:
+lbz	r0, 0x0002 (r3)
+.long 0
