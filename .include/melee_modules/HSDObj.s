@@ -781,9 +781,9 @@ FObj.xFlags       = 0x10
 
 # SObj Descriptor:
 SDesc.xModelSet       = 0x00
-SDesc.xCamera         = 0x00
-SDesc.xLights         = 0x00
-SDesc.xFog            = 0x00
+SDesc.xCamera         = 0x04
+SDesc.xLights         = 0x08
+SDesc.xFog            = 0x0C
 
 # SObjs Instance:
 SObj.xNext            = 0x04

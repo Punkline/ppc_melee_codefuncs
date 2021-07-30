@@ -1,6 +1,6 @@
 -==-
 !
-CSS TESTS - TEMPLATE
+CSS DPAD BUTTON TESTS
 [Punkline]
 Revision ---- DOL Offset ---- Hex to Replace ---------- ASM Code -
 NTSC 1.02 --- 0x80260c14 ---- 88030002 -> Branch
@@ -80,4 +80,65 @@ mr r3, rIcon
 
 # original instruction, and return from injection:
 lbz	r0, 0x0002 (r3)
+.long 0
+
+
+-==-
+!
+CSS POST-INITIALIZATION
+[Punkline]
+Revision ---- DOL Offset ---- Hex to Replace ---------- ASM Code -
+NTSC 1.02 --- 0x802669dc ---- 80010024 -> Branch
+.include "melee"; punkpc;
+prolog rData    # <-- add saved register aliases here
+
+data.start
+  # <-- data goes here
+
+data.end rData
+  # <-- code goes here, rData can access above data table
+
+_return:
+epilog
+lwz	r0, 0x0024 (sp)
+.long 0
+
+
+-==-
+!
+MAIN MENU POST-INITIALIZATION
+Revision ---- DOL Offset ---- Hex to Replace ---------- ASM Code -
+NTSC 1.02 --- 0x ----  -> Branch
+.include "melee"; punkpc;
+prolog rData    # <-- add saved register aliases here
+
+data.start
+  # <-- data goes here
+
+data.end rData
+  # <-- code goes here, rData can access above data table
+
+_return:
+epilog
+lwz	r0, 0x0024 (sp)
+.long 0
+
+
+-==-
+!
+STARTING SCENE POST-INITIALIZATION
+Revision ---- DOL Offset ---- Hex to Replace ---------- ASM Code -
+NTSC 1.02 --- 0x801b0338 ---- 8001000c -> Branch
+.include "melee"; punkpc;
+prolog rData    # <-- add saved register aliases here
+
+data.start
+  # <-- data goes here
+
+data.end rData
+  # <-- code goes here, rData can access above data table
+
+_return:
+epilog
+lwz	r0, 0x0024 (sp)
 .long 0
