@@ -11,6 +11,58 @@ r13.xOSArenaHi=-0x4330
 # This points to the current top of the ArenaHigh stack (descends from top of RAM, downwards)
 
 
+# Static OS params:
+# - OS DVD info
+OS.xGamecode      = 0x00
+OS.xCompany       = 0x04
+OS.xDiskID        = 0x06
+OS.xVersion       = 0x07
+OS.xStreaming     = 0x08
+OS.xStreamBufSize = 0x09
+
+# - OS System Info
+OS.xDVDMagicWord       = 0x1C
+OS.xMagicWord          = 0x20
+OS.xVersion            = 0x24
+OS.xPhysicalMemorySize = 0x28
+OS.xConsoleType        = 0x2C
+OS.xArenaLo            = 0x30
+OS.xArenaHi            = 0x34
+OS.xFST                = 0x38
+OS.xFSTMaxChars        = 0x3C
+
+# - OS Debugger Info
+OS.xDebuggerPresent       = 0x40
+OS.xDebuggerExceptionMask = 0x44
+OS.xDebuggerExceptionHook = 0x48
+OS.xDebuggerReturnAddress = 0x4C
+OS.xDebuggerHook          = 0x60
+
+# - OS Globals
+OS.xPhysicalContext   = 0xC0
+OS.xPrevInterruptMask = 0xC4
+OS.xThisInterruptMask = 0xC8
+OS.xTVMode            = 0xCC
+OS.xARAMSize          = 0xD0
+OS.xContext           = 0xD4
+OS.xDefaultThread     = 0xD8
+OS.xHeadThread        = 0xDC
+OS.xTailThread        = 0xE0
+OS.xThread            = 0xE4
+OS.xDebugMonitorSize  = 0xE8
+OS.xDebugMonitor      = 0xEC
+OS.xConsoleMemorySize = 0xF0
+OS.xDVDB12Buffer      = 0xF4
+OS.xBUSClockSpeed     = 0xF8
+OS.xCPUClockSpeed     = 0xFC
+
+# - Dolphin Globals
+OS.xDOLSize    = 0x30d4
+OS.xPowerOnTBU = 0x30d8
+OS.xPowerOnTBL = 0x30dc
+
+
+# Memory manager metadata structures:
 MemDef.xID       = 0x00
 MemDef.xBehavior = 0x04
 MemDef.xPrevID   = 0x08
@@ -20,11 +72,11 @@ MemDef.addr      = 0x803ba380
 # These are defined statically in the DOL
 
 MemGlob.xIDMax   = 0x00
-MemGlob.xSRAMLo  = 0x04
-MemGlob.xSRAMHi  = 0x08
-MemGlob.xDRAMLo  = 0x0C
-MemGlob.xDRAMHi  = 0x10
-MemGlob.size     = 0x14
+MemGlob.xSRAMLo  = 0x10
+MemGlob.xSRAMHi  = 0x14
+MemGlob.xDRAMLo  = 0x18
+MemGlob.xDRAMHi  = 0x1C
+MemGlob.size     = 0x20
 MemGlob.addr     = 0x80431f90
 # These are updated globally, as a header to the MemDesc struct array
 # - adding '.size' to this base address will convert it into the base of 'MemDesc.'
@@ -143,6 +195,12 @@ mem.info.rATotal = r12
 # - rF* and rA* represent 'Free' and 'Allocated' params for the given region ID
 # - r*Big returns the largest found fragment of free/alloc fragments counted in this region
 
+
+# --- RETURNS for <mem.static>
+mem.static.rArg    = r3
+mem.static.rID     = r4
+mem.static.rStart  = r5
+mem.static.rString = r6
 
 # --- RETURNS for <data.async_info>
 data.async_info.rAsync     = r3
