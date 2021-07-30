@@ -275,7 +275,7 @@ load rGlob, MemGlob.addr
 lwz r5, MemGlob.xIDMax(rGlob)
 addi rDef, rGlob, MemGlob.size
 cmplw rID, r5
-crandc bInRange, lt, cr1.lt
+crnor bInRange, gt, cr1.lt
 # bInRange encodes a check to see if given r3 ID is within this counted range
 
 li rHeap, 0
@@ -301,16 +301,16 @@ bt+ bInRange, _region
 
 _region:
 load rMem, MemDesc.addr
-mulli r0, rID, MemDef.size
+mulli r0, rID, MemDesc.size
 add rMem, rMem, r0
 lwz r0, MemDesc.xDisabled(rMem)
 cmpwi cr1, r0, 1
-crand bIsAvailable, bIsAvailable, bInRange
+crand bIsAvailable, lt, bInRange
 # if xDisabled var is 0 and bInRange, then bIsAvailable
 
-lwz r0, MemDesc.xInit(rMem)
-cmpwi r0, 1
-crand bIsAvailable, bIsAvailable, eq
+# lwz r0, MemDesc.xInit(rMem)
+# cmpwi r0, 1
+# crand bIsAvailable, bIsAvailable, eq
 # bIsAvailable &= bIsInitialized
 
 lwz r0, MemDesc.xBehavior(rMem)
@@ -352,52 +352,13 @@ lwz rSize, MemDesc.xSize(rMem)
 blr # return region boundary summary from memory descriptor
 
 
-<mem.static_boundaries> NTSC 1.02
-count = 11
-_head:  .byte _bounds-_head, _strings-_head, count
-# 0x0 = offset of boundaries array
-# 0x1 = offset of strings array
-# 0x2 = number of boundary definitions
-# 0x3 = (start of string offset byte array)
-
-.altmacro; i = -1
-.rept count;  i = i+1
-  .irp n, %i; .byte \n\()f-_head; .endr
-.endr; .noaltmacro; .align 2 # emit pointer bytes, to start of each null-terminated string
-# - these are all offsets from base of this data table, at '_head'
-
-_bounds:
-.long 0x80000000  # 0 - "HEAD"    -- these are predictable static boundaries
-.long 0x80005940  # 1 - "TEXT"
-.long 0x803b7240  # 2 - "DATA"
-.long 0x804316c0  # 3 - "BSS"
-.long 0x804D36A0  # 4 - "SDATA"
-.long 0x804D79e0  # 5 - "TOC"
-.long 0x804DEC00  # 6 - "TEMP"
-.long 0x804EEC00  # 7 - "LOW"
-.long 0, 0, 0  # 8, 9, 10  -- these last ones are procedurally written, at runtime
-
-_strings:
-# strings are kept at end of table:
-0:  .asciz "HEAD"
-1:  .asciz "TEXT"
-2:  .asciz "DATA"
-3:  .asciz "BSS"
-4:  .asciz "SDATA"
-5:  .asciz "TOC"
-6:  .asciz "RTS"
-7:  .asciz "LOW"
-8:  .asciz "HSD"
-9:  .asciz "HIGH"
-10: .asciz "FST"
-.align 2
 
 
 <mem.info> NTSC 1.02
 .include "melee"
 melee mem
 punkpc ppc
-prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rString, rStatic, rMeta, rOffset, rSize, rStart, rReturns, rCR, xBiggest, +0x20, xReturns
+prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rString, rStatic, rMeta, rOffset, rSize, rStart, rReturns, rCR, xBiggest, +0x40, xReturns
   # saved registers, and temp workspace in sp
 
   regs (r3), rID, rMem, rHeap, rCache, rFCount, rFBig, rFTotal, rACount, rABig, rATotal
@@ -433,29 +394,6 @@ prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rString, rStatic, rMe
   cmplw rLow, rArg
   crand bIsValid, bIsValid, lt
   # validity requires that r3 be within ID, SRAM or DRAM integer range
-
-  lis r31, <<mem.static_boundaries>>@h
-  ori r31, r31, <<mem.static_boundaries>>@l
-  # rData is now pointing to static boundaries data table
-  # - since the last 4 boundaries are decided by moddable circumstances, they must be updated
-
-
-  lbz r0, datahead.xBoundaries(rData)
-  add rThis, rData, r0
-  # rThis points to base of word-aligned boundary definitions
-
-  load rGlob, MemGlob.addr
-  lwz rLow, MemGlob.xSRAMLo(rGlob)
-  lbz rSize, datahead.xCount(rData)
-  subi rNext, rSize, 4
-  lwz rThis, MemGlob.xSRAMHi(rGlob)
-  slwi rNext, rNext, 2
-  lwz rHigh, OS.xFSTStart(rOS)
-  add rNext, rThis, rNext
-  stwu rLow, 0x4(rNext)   # 8 = HSD
-  stwu rThis, 0x4(rNext)  # 9 = HIGH
-  stw rHigh, 0x4(rNext)   # 10 = FST
-  # moddable boundaries are procedurally sampled, updating the static boundaries list
 
   bl <mem.ID>  # returns rID, rMem, rHeap, rCache, and cr1 bools
   cmpwi rMem, 0
@@ -601,40 +539,44 @@ _loop:
 
     _cache_size:
     lwz rMeta, CacheDesc.xMeta(rCache)
-    lwz rFTotal, MemDesc.xSize(rMem)
+    cmpwi rMeta, 0
+    lwz rSize, MemDesc.xSize(rMem)
+    li rATotal, 0
+    bge- 1f
     lwz rNext, CacheMeta.xNext(rMeta)
     0: cmpwi rNext, 0
-      bge- 0f
+      bge- 1f
         addi rACount, rACount, 1
         lwz rThis, CacheMeta.xSize(rMeta)
         add rATotal, rATotal, rThis
-        cmpwi rThis, rABig
-        ble+ 1f;
+        cmpw rThis, rABig
+        ble+ 2f;
           mr rABig, rThis
           stw rMeta, sp.xBiggest(sp)
           # sample biggest by storing metadata pointer in temp workspace
 
-        1:
+        2:
         mr rMeta, rNext
         lwz rNext, CacheMeta.xNext(rMeta)
         b 0b  # count bytes in each push of the cache stack
 
-    0: sub rFTotal, rFTotal, rATotal
+    1: sub rFTotal, rSize, rATotal
+    li rFBig, 0
+    li rFCount, 0
     # calculate total free bytes by subtracting counted bytes from defined total
 
-    cmpwi rArg2, rFTotal
+    cmplw rArg2, rFTotal
     lwz rABig, sp.xBiggest(sp)
     crmove bIsAvailable, lt
-    lwz rHigh, CacheDesc.xHigh(rCache)
     crmove bMatch, bIsAvailable
-    sub rFBig, rHigh, rSize
     # finally, see if query size fits within calculated free bytes
 
-    bf- bIsAvailable, _check_for_static_boundary
+    bf- bIsAvailable, _return
     # if not, then return the current state of the parser
 
+    lwz rHigh, CacheDesc.xHigh(rCache)
     mr rSize, rFTotal
-    mr rStart, rFBig
+    sub rStart, rHigh, rSize
     # - this returns the rF* and rA* for information about the memory region
 
     b _return
@@ -649,6 +591,8 @@ _loop:
     mr rFCount, rACount
     mr rFTotal, rATotal
     mr rFBig, rABig
+    li rATotal, 0
+    li rACount, 0
     # search for free heap fragments first, to confirm if space is/isn't available
 
     0:
@@ -656,7 +600,7 @@ _loop:
       bge- 0f
       lwz rSize, HeapMeta.xSize(rMeta)
       bt- bPass, 1f
-        cmpw rArg2, rSize
+        cmplw rArg2, rSize
         crmove bMatch, lt
 
       1:
@@ -669,7 +613,7 @@ _loop:
 
       1:
       add rATotal, rATotal, rSize
-      addi rATotal, rATotal, 0x20
+      #addi rATotal, rATotal, 0x20
       addi rStart, rMeta, 0x20
       lwz rMeta, HeapMeta.xNext(rMeta)
       bt- bMatch, 0f
@@ -695,48 +639,138 @@ _loop:
 
   _return:
   crand bIsValid, bIsValid, bMatch
+  mfcr r0
+  rlwimi rCR, r0, 0, 0x0F000000
   bf- bIsValid, _exit
   # if valid input was not given, then only a summary of the parse is returned (from working regs)
 
-  stswi rStart, rReturns, 6<<2
-  lswi mem.info.rStart, rReturns, 6<<2
-  # else, copy returns from saved registers over to return registers
-  # - this only applies to successful queries
+
 
 
   # Additionally, we want to return a static boundary if successfuly query is in SRAM:
 
   _check_for_static_boundary:
-  bt- bIsARAM, _exit
+  stswi rStart, rReturns, 6<<2
+  bt- bIsARAM, 1f
   # the audio samples in ARAM are not well enough documented to label them (at this time)
   # - if info is for ARAM address (DRAM), then no static boundary ID is given
 
-  rX = rArg2
-  # temp aliases, for registers no longer being used
+    addi rReturns, rReturns, 6<<2
+    stswi r3, rReturns, 4<<2
+      mr r3, rStart
+      bl <mem.static>
+      stw mem.static.rStart, -8(rReturns)
+      stw mem.static.rString, -4(rReturns)
+    lswi r3, rReturns, 4<<2
+    addi rReturns, rReturns, -6<<2
+    # sloppy return context planning
 
-  lbz rStatic, datahead.xCount(rData)
-  lbz rThis, datahead.xBoundaries(rData)
-  add rThis, rThis, rData
-  # prepare for lwzx index parse...
-
-  _find_static_boundary:
-    subic. rStatic, rStatic, 1
-    beq- 0f
-    slwi rX, rStatic, 2
-    lwzx rLow, rThis, rX
-    cmpw rStart, rLow
-    blt+ _find_static_boundary
-  0:
-  lbz rThis, datahead.xStrings(rData)
-  add rThis, rThis, rData
-  lbzx rX, rThis, rStatic
-  add rString, rData, rX
-  # return static boundary region ID and associated string label
+  1:
+  lswi mem.info.rStart, rReturns, 6<<2
+  # prepare all returned registers
 
 _exit:
-mtcrf 0xBF, rCR
+mtcr rCR
 epilog
 blr
+
+
+<mem.static> NTSC 1.02
+.include "melee"; punkpc; melee mem
+regs (r3), rArg, rCount,  (r4), rID, rAddr, rString, rArr, rData, rOS
+enum.enum_conc "datahead.",, (0), +1, xBoundaries, xStrings, xCount, size
+
+lis r8, <<mem.static_boundaries>>@h
+ori r8, r8, <<mem.static_boundaries>>@l
+lis rOS, 0x8000
+lbz r0, datahead.xBoundaries(rData)
+lbz rCount, datahead.xCount(rData)
+add rArr, rData, r0
+load rAddr, MemGlob.addr
+lwz r0, MemGlob.xSRAMLo(rAddr)
+stw r0, 8<<2(rArr)  # HSD
+lwz r0, MemGlob.xSRAMHi(rAddr)
+stw r0, 9<<2(rArr)  # ArenaHi
+lwz r0, OS.xFST(rOS)
+stw r0, 10<<2(rArr) # FST
+# update procedurally determined boundaries, beyond ArenaLo
+
+cmplw rArg, rCount
+lbz r0, datahead.xBoundaries(rData)
+add rArr, rData, r0
+mr r0, rArg
+blt+ _ID
+
+  _Addr:
+  lis r0, 0x8180
+  cmpw rArg, r0
+  blt+ 0f
+
+    _bad_input:
+    li rID, -1
+    li rAddr, 0
+    li rString, 0
+    blr  # if input was bad, then return nulls
+
+  0:
+  subic. rCount, rCount, 1
+  slwi r0, rCount, 2
+  blt- _bad_input
+  lwzx r0, rArr, r0
+  cmpw rArg, r0
+  mr r0, rCount
+  blt+ 0b
+
+_ID:
+mr rID, r0
+addi rString, rData, datahead.size
+slwi r0, rID, 2
+lwzx rAddr, rArr, r0
+lbzx r0, rString, rID
+add rString, rData, r0
+blr  # return ID, address, and string for valid inputs
+
+
+
+<mem.static_boundaries> NTSC 1.02
+count = 11
+_head:  .byte _bounds-_head, _strings-_head, count
+# 0x0 = offset of boundaries array
+# 0x1 = offset of strings array
+# 0x2 = number of boundary definitions
+# 0x3 = (start of string offset byte array)
+
+.altmacro; i = -1
+.rept count;  i = i+1
+  .irp n, %i; .byte \n\()f-_head; .endr
+.endr; .noaltmacro; .align 2 # emit pointer bytes, to start of each null-terminated string
+# - these are all offsets from base of this data table, at '_head'
+
+_bounds:
+.long 0x80000000  # 0 - "HEAD"    -- these are predictable static boundaries
+.long 0x80005940  # 1 - "TEXT"
+.long 0x803b7240  # 2 - "DATA"
+.long 0x804316c0  # 3 - "BSS"
+.long 0x804D36A0  # 4 - "SDATA"
+.long 0x804D79e0  # 5 - "TOC"
+.long 0x804DEC00  # 6 - "TEMP"
+.long 0x804EEC00  # 7 - "LOW"
+.long 0, 0, 0  # 8, 9, 10  -- these last ones are procedurally written, at runtime
+
+_strings:
+# strings are kept at end of table:
+0:  .asciz "HEAD"
+1:  .asciz "TEXT"
+2:  .asciz "DATA"
+3:  .asciz "BSS"
+4:  .asciz "SDATA"
+5:  .asciz "TOC"
+6:  .asciz "RTS"
+7:  .asciz "LOW"
+8:  .asciz "HSD"
+9:  .asciz "HIGH"
+10: .asciz "FST"
+.align 2
 
 
 
@@ -755,8 +789,7 @@ args: rA, rB, rSize
 data.point  # relocate various input types as pointer outputs
 args: rAddr   # type 1: Address of branch instruction (or pointer)
 args: rOffset, rAddr  # type 2: relocation from pointer
-args: rOffset, rBranch  # type 3: relocation from branch
- <-- rAddr, rBase, rOffset
+ <-- rPoint, rBase, rOffset
  <-- cr1.lt: bValidAddr,  cr1.gt: bIsBranch
 # - all output pointers from branches are considered valid
 
@@ -825,20 +858,56 @@ args: rAddr, rSize
 
 [Punkline]
 <data.point> NTSC ALL
-lt=0; gt=1; eq=2; bValidAddr=4; bIsBranch=5
+# relocate various input types as pointer outputs
+
+# --- args (syntax 1):
+# r3 = rAddr    -- address of branch instruction, pointer, or byte offset from rAddr
+# --- args (syntax 2):
+# r3 = rOffset  -- offset from base address
+# r4 = rAddr    -- base address
+
+# --- returns:
+# r3 = rPoint   -- the resulting pointer address value
+# r4 = rAddr    -- the base address used for this pointer
+# r5 = rOffset  -- the offset used for this base address
+# cr1.lt = bValidAddr  -- the resulting pointer is a valid address
+# cr1.gt = bIsBranch   -- the given input was a branch instruction
+.include "melee"; punkpc
+lt=0; gt=1; eq=2; bIsValid=4; bIsBranch=5
 lis r0, 0x8180
 cmpw r3, r0
-blt- 0f
-  lwz r4, 0(r3)
-  li r3, 0
-0: cmpw cr1, r4, r0
-andis. r0, r4, 0x4000
+crclr bIsBranch
 mr r5, r3
-crandc bIsBranch, gt, bValidAddr
-bf+ bIsBranch, 0f
-  rlwinm r0, r4, 6, 0xFFFFFF80
-  add r4, r4, r0
-lwz r0,
+bge- 0f
+
+  # if input r3 is an address
+  lwz r5, 0(r3)  # load value
+  cmpw r5, r0    # check if value is addr
+  mr r4, r3      # (assume given address is base address)
+  bge+ 1f
+
+    # if loaded value is an address
+    mr r4, r5
+    li r5, 0
+    b 0f  # then just use that address without an offset
+
+  1: # if loaded value isn't an address
+  rlwinm r3, r5, 0xC0000000
+  cmpwi r3, 4  # check if it's a branch instruction opcode
+  crmove bIsBranch, eq
+  bne- 0f
+
+    # if loaded value is a branch
+    rlwinm r3, r5, 6, 0xFFFFFF00
+    srawi r5, r3, 6  # then mask/extract signed word offset
+    # else, just treat loaded value like a signed byte offset
+
+0:
+add r3, r4, r5
+cmpw r3, r0
+crmove bIsValid, lt
+blr  # return updated cr1 bools, r3 pointer, and base/offset values
+
 
 
 <data.zero> NTSC 1.02
