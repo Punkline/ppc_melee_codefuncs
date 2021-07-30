@@ -1,33 +1,36 @@
+-==-
+
 Dolphin Logger Functions
 
+log.print  # print ascii to Dolphin Log 'OSReport' output
+args: rString, rArg1, rArg2, rArg3 ...
+# - printed lines are formatted with the following escapes
+#   - FPRS:  %f = float,  %e = exponent
+#   - GPRS:  %s = str,  %x = hex,  %d, %i = signed decimal
+#   - GPRS:  %u = unsigned decimal,  %\x23\ x = prefixed hex
+#   - GPRS:  %\x23\ 04x = 4-digits of hex, including prefix
+# - printed lines must be 1024 chars or less
+# - printed lines will flood stdout and obfuscate error messages
+
+log.nl  # Print a null message to give appearence of newline
+
+log.timestamp  # returns details about current frame/time
+returns: rScene, rRel, rBoot, rID, rTrans, rMajor, rMinor, rTBU, rTBL, fScene, fRel, fBoot
 
 [Punkline]
 # --- generic tools:
 
-<log.printf> NTSC 1.02
-# This logs a formatted print message in the Dolphin logger
-# - log messages will flood EXI buffer with ascii, obfuscating some error outputs in the game
-
-# --- args:
-# r3 = address of format string
-# - string MUST begin with a space
-# - string may include escapes for inserting formatted arguments:
-#   - GPR escapes:  %s = str,  %x = hex,  %d, %i = signed decimal,  %u = unsigned decimal
-# r4...r10 = GPR arguments
-# - these will be fed into the escapes found in the format string, as needed
-
-crandc 6, 6, 6  # disables FPR args
-b 0x80323eb4   # printf
-
-<log.printff> NTSC 1.02
+<log.print> NTSC 1.02
 # This logs a formatted print message in the Dolphin logger, and can use floating point args
 # - log messages will flood EXI buffer with ascii, obfuscating some error outputs in the game
 
 # --- args:
 # r3 = address of format string
 # - string MUST begin with a space, and may include escapes for inserting formatted arguments
-#   - GPR escapes:  %s = str,  %x = hex,  %d, %i = signed decimal,  %u = unsigned decimal
 #   - FPR escapes:  %f = float,  %e = exponent
+#   - GPR escapes:  %s = str,  %x = hex,  %d, %i = signed decimal,  %u = unsigned decimal
+#   - %\x23\ x  -- this format makes hex with a prefix '0x'
+#   -
 # r4...r10 = GPR arguments
 # f1...f8  = FPR arguments
 # - these will be fed into the escapes found in the format string, as needed
@@ -36,8 +39,7 @@ crorc 6, 6, 6  # enables FPR args
 b 0x80323eb4   # printf
 
 
-
-<log.printf_nl>
+<log.nl>
 # Prints a null message to give the appearence of a newline without emitting one
 mflr r0
 stwu sp, -0x20(sp)
@@ -45,7 +47,7 @@ stw  r0,  0x20+4(sp)
 li r0, 0
 stw r0, 0x10(sp)
 addi r3, sp, 0x10
-bl <log.printf>
+bl <log.print>
 lwz  r0,  0x20+4(sp)
 addi sp, sp, 0x20
 mtlr r0
@@ -197,4 +199,125 @@ _return:
 lwz  r0,  0x20+4(sp)
 addi sp, sp, 0x20
 mtlr r0
+blr
+
+
+<log.mem.info> NTSC 1.02
+.include "melee"; punkpc; melee mem
+prolog rData, rString, rArg, rID, rMem, rMeta, rFSize, rASize, rReturns, cr, +0x20, xReturns
+data.start
+  0:  .asciz " MemDesc[%x] -- TYPE: %s %s   DESC: %8x   START: %8x   TOTAL: %\x23\ 8x bytes"
+  1:  .asciz " HEAP"
+  2:  .asciz "CACHE"
+  3:  .asciz "Free     "
+  4:  .asciz "Allocated"
+  5:  .asciz "   %s   FRAGS: %\x23\ 8x   BIGGEST: %8x (%\x23\ 8x bytes)  TOTAL: %\x23\ 8x bytes"
+  6:  .asciz "DRAM"
+  7:  .asciz "SRAM"
+  8:  .asciz " MemDesc[%x] -- NOT ACTIVE"
+  9:  .asciz " MemDesc[%x] -- %s: %8x   SIZE: %\x23 10x   QUERY: %8x   OFFSET: %\x23 10x"
+  10: .asciz " Static %5s -- START: %8x   QUERY: %8x   OFFSET: %\x23 10x"
+  11: .asciz " (invalid query, use an address or a MemDesc ID 0...5)"
+  align 2
+  data.struct 0, "data.", xID, xHeap, xCache, xFree, xAlloc, xLine, xDRAM, xSRAM, xNotActive, xAddr, xStatic, xBad
+
+data.end rData
+mr rArg, r3
+bl <mem.info>
+cmpwi cr2, rArg, 0
+mr. rMem, mem.info.rMem
+mr rID, mem.info.rID
+bge- cr2, _handle_ID
+
+  _handle_addr:
+  bt+ mem.info.bInRegion, _mem_addr
+    cmpwi cr3, mem.info.rStatic, 0
+    blt _static_addr
+
+      _bad_addr:
+      addi r3, rData, data.xBad
+      b _final_print
+      # print invalid query message if no information is returned from mem.info
+
+      _static_addr:
+      mr r5, mem.info.rStatic
+      mr r4, mem.info.rString
+      addi r3, rData, data.xStatic
+      mr r6, rArg
+      sub r7, r6, r5
+      b _final_print
+      # print static address info if query address couldn't be found in a managed memory region
+
+      _mem_addr:
+      mr r5, mem.info.rStart
+      mr r6, mem.info.rSize
+      addi r3, rData, data.xAddr
+      mr r4, rID
+      mr r7, rArg
+      sub r8, r7, r5
+      b _final_print
+      # print allocation/fragment information if
+
+_handle_ID:
+blt+ _memdesc_ID
+
+  _inactive_ID:
+  mr r4, rID
+  addi r3, rData, data.xNotActive
+  b _final_print
+  # print about inactive region if ID is given but memdesc isn't found
+
+
+  _memdesc_ID:
+  regs (mem.info.rFCount), +1, rFCount, rFBig, rFTotal, rACount, rABig, rATotal
+  # create aliases in this namespace for some mem.info.* returns
+
+  cmpwi cr2, rFBig, 0
+  cmpwi cr3, rABig, 0
+  mr rFSize, rFBig
+  mr rASize, rABig
+  addi rReturns, sp, sp.xReturns
+  stswi rFCount, rReturns, 6<<2
+  # temporarily store finalized info about free and allocated fragments
+  bt- mem.info.bIsHeap, _heap_ID
+
+    _cache_ID:
+    addi rString, rData, data.xCache
+    bge- cr3, 0f; lwz rASize, CacheMeta.xSize(rABig); 0:
+    b _print_ID
+
+    _heap_ID:
+    addi rString, rData, data.xHeap
+    bge- cr2, 0f; lwz rFSize, HeapMeta.xSize(rFBig); 0:
+    bge- cr3, 0f; lwz rASize, HeapMeta.xSize(rABig); 0:
+
+  _print_ID:
+  mr r7, mem.info.rMem
+  lwz r8, MemDesc.xStart(r7)
+  lwz r9, MemDesc.xSize(r7)
+  addi r5, rData, data.xSRAM
+  bf+ mem.info.bIsARAM, 0f; addi r5, rData, data.xDRAM; 0:
+  mr r6, rString
+  mr r4, rID
+  addi r3, rData, data.xID
+  bl <log.print>
+  addi r3, rData, data.xLine
+  addi r4, rData, data.xFree
+  lswi r5, rReturns, 3<<2
+  mr r8, r7
+  mr r7, rFSize
+  bl <log.print>
+  addi r3, rData, data.xLine
+  addi rReturns, rReturns, 3<<2
+  addi r4, rData, data.xAlloc
+  lswi r5, rReturns, 3<<2
+  mr r8, r7
+  mr r7, rASize
+
+  _final_print:
+  bl <log.print>
+  bl <log.nl>
+
+_return:
+epilog
 blr
