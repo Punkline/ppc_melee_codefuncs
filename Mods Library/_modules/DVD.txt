@@ -647,7 +647,7 @@ b <DVD.sync_to>
 .include "melee"
 punkpc ppc
 melee DVD, mem
-prolog rAsync, rStr, rMeta, rArch, rSyncCB, rSize, rStart, rOut, rNum, rSize, rSyncArg, rArgs
+prolog rAsync, rStr, rMeta, rArch, rSyncCB, rBytes, rStart, rOut, rNum, rSize, rSyncArg, rArgs
 # saved registers for r31 -= 1 ...
 # - the first 8 registers are ordered to resemble part of the return interface
 
@@ -687,9 +687,9 @@ bt- bInvalid, _return
   # save returned file information in uninitialized registers
 
   sub rSize, r5, rStart
-  cmplw rSize, rSize
-  ble+ 0f; mr rSize, rSize; 0:
-  addi rSize, rSize, 0x1F
+  cmplw rBytes, rSize
+  ble+ 0f; mr rBytes, rSize; 0:
+  addi rSize, rBytes, 0x1F
   rlwinm rSize, rSize, 0, ~0x1F
   # Calculate arbitrary part size, and cap it if necessary
   # - resulting size is rounded up to align to 0x20 bytes, if necessary
