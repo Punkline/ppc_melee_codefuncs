@@ -437,6 +437,16 @@ HSD Obj Functions
 # - each may be null, to skip construction
 b 0x8036fb5c
 
+<JObj.reqAnimAll> NTSC 1.02
+# Flags a JObj for animation and sets a starting frame
+
+# --- args:
+# r3 = JObj root
+# r4 = AnimJoint root
+# f1 = starting frame
+
+b 0x8036f8bc
+
 <JObj.setMtxDirtySub> NTSC 1.02
 # Used to apply iterative frame-wise transformations to joints based on animations
 # r3 = JObj
