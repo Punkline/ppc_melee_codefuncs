@@ -105,22 +105,29 @@ lwz	r0, 0x0024 (sp)
 
 
 -==-
-!
-MAIN MENU POST-INITIALIZATION
+ONCE PER FRAME
+[Punkline]
 Revision ---- DOL Offset ---- Hex to Replace ---------- ASM Code -
-NTSC 1.02 --- 0x ----  -> Branch
-.include "melee"; punkpc;
+NTSC 1.02 --- 801a507c ---- 8019000c -> Branch
+.include "melee"; punkpc; melee MPad
 prolog rData    # <-- add saved register aliases here
 
 data.start
   # <-- data goes here
 
-data.end rData
+data.end rData, rMPad, rPress
   # <-- code goes here, rData can access above data table
 
+load rMPad, MPad.addr
+lwz rPress, MPad.xOnPress(rMPad)
+andi. r0, r3, MPad.mDLeft
+beq+ _return
+
+  _OnLeft:
+
+
 _return:
-epilog
-lwz	r0, 0x0024 (sp)
+lwz r0, 0xC(r25)
 .long 0
 
 
