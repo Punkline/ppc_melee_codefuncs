@@ -1,0 +1,21 @@
+-==-
+Memory Info Log Query tester
+
+Type an address or memory region ID into 80401810 and press dpad left to print out information in the Dolphin log
+[Punkline]
+Revision ---- DOL Offset ---- Hex to Replace ---------- ASM Code -
+NTSC 1.02 --- 801a507c ---- 8019000c -> Branch
+.include "melee"; punkpc; melee MPad
+load r3, MPad.addr
+lwz r3, MPad.xOnPress(r3)
+andi. r0, r3, MPad.mDLeft
+beq+ _return
+
+  load r4, 0x80401810
+  lwz r3, 0(r4)
+  li r4, -1
+  bl <log.mem.info>
+
+_return:
+lwz r0, 0xC(r25)
+.long 0
