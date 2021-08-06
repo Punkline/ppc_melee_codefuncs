@@ -105,17 +105,17 @@ lwz	r0, 0x0024 (sp)
 
 
 -==-
-ONCE PER FRAME
+!ONCE PER FRAME
 [Punkline]
 Revision ---- DOL Offset ---- Hex to Replace ---------- ASM Code -
 NTSC 1.02 --- 801a507c ---- 8019000c -> Branch
 .include "melee"; punkpc; melee MPad
-prolog rData    # <-- add saved register aliases here
+prolog rData, rMPad, rPress    # <-- add saved register aliases here
 
 data.start
   # <-- data goes here
 
-data.end rData, rMPad, rPress
+data.end rData
   # <-- code goes here, rData can access above data table
 
 load rMPad, MPad.addr
