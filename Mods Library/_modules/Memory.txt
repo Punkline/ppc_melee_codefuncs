@@ -358,7 +358,7 @@ blr # return region boundary summary from memory descriptor
 .include "melee"
 melee mem
 punkpc ppc
-prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rString, rStatic, rMeta, rOffset, rSize, rStart, rReturns, rCR, xBiggest, +0x40, xReturns
+prolog rData, rArg, rArg2, rHigh, rLow, rThis, rNext, rString, rStatic, rMeta, rOffset, rSize, rStart, rReturns, rCR, xBiggest, +0x40, xReturns
   # saved registers, and temp workspace in sp
 
   regs (r3), rID, rMem, rHeap, rCache, rFCount, rFBig, rFTotal, rACount, rABig, rATotal
@@ -369,9 +369,6 @@ prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rString, rStatic, rMe
 
   enum (cr2.lt), +1, bIsValid, bMatchRAM, bMatchType, bMatch, bPass, bCheckSize
   # bools used in parse
-
-  enum.enum_conc "OS.",, (0x28), xSRAMSize, (0xD0), xDRAMSize, (0x38), xFSTStart
-  # - various OS params, in static OS head (low 256 bytes of SRAM)
 
   enum.enum_conc "datahead.",, (0), +1, xBoundaries, xStrings, xCount, size
   # - custom data in rData has a header with 3 bytes, followed by an array of byte pointers
@@ -385,19 +382,17 @@ prolog rData, rArg, rArg2, rOS, rHigh, rLow, rThis, rNext, rString, rStatic, rMe
   mfcr rCR
   mr rArg, r3
   mr rArg2, r4
-  lis rOS, 0x8000
-  lwz rHigh, OS.xDRAMSize(rOS)
-  lwz rLow, OS.xSRAMSize(rOS)
+  lis rHigh, 0x8180
+  lis rLow, 0x0100
   addi rReturns, sp, sp.xReturns
-  add rLow, rLow, rOS
-  cmplw cr2, rArg, rHigh
-  cmplw rLow, rArg
-  crand bIsValid, bIsValid, lt
+  cmpw cr2, rArg, rHigh
+  cmplw rArg, rLow
+  cror bIsValid, cr2.lt, lt
   # validity requires that r3 be within ID, SRAM or DRAM integer range
 
   bl <mem.ID>  # returns rID, rMem, rHeap, rCache, and cr1 bools
   cmpwi rMem, 0
-  cror cr1.lt, lt, bIsValid
+  cror bIsAvailable, lt, bIsValid
   mcrf 2, 1
   # combine check for valid ID with previous check for Addr ranges...
   # - we move the cr2 bool over to cr1 before copying it back over after combination with whole CRF
@@ -448,9 +443,9 @@ _loop:
       bf- bIsValid, _init_nulls
       # if all valid IDs are parsed without a match, then return nulls
 
-      crand bIsARAM, bIsARAM, bMatchRAM
-      crand bIsAvailable, bIsAvailable, bIsARAM
-      bf- bIsAvailable, _next_ID
+      creqv bIsValid, bIsARAM, bMatchRAM
+      crand bIsValid, bIsAvailable, bIsValid
+      bf- bIsValid, _next_ID
       # if region doesn't match RAM type of query, then skip it
 
     1:
@@ -490,6 +485,8 @@ _loop:
         crset bIsAllocated
 
         _cache_addr_is_free:
+        lwz rHigh, CacheDesc.xHigh(rCache)
+        sub rSize, rHigh, rStart
         _set_offset:
         sub rOffset, rArg, rStart
         b _return
@@ -641,17 +638,15 @@ _loop:
   crand bIsValid, bIsValid, bMatch
   mfcr r0
   rlwimi rCR, r0, 0, 0x0F000000
-  bf- bIsValid, _exit
-  # if valid input was not given, then only a summary of the parse is returned (from working regs)
-
-
+  bt- bCheckSize, _exit
 
 
   # Additionally, we want to return a static boundary if successfuly query is in SRAM:
 
   _check_for_static_boundary:
   stswi rStart, rReturns, 6<<2
-  bt- bIsARAM, 1f
+  bt+ bIsValid, 0f; mr rStart, rArg; 0:
+  bt- bIsARAM, 0f
   # the audio samples in ARAM are not well enough documented to label them (at this time)
   # - if info is for ARAM address (DRAM), then no static boundary ID is given
 
@@ -665,7 +660,7 @@ _loop:
     addi rReturns, rReturns, -6<<2
     # sloppy return context planning
 
-  1:
+  0:
   lswi mem.info.rStart, rReturns, 6<<2
   # prepare all returned registers
 
