@@ -28,6 +28,7 @@ DVD.file.bInvalid = cr1.eq
 FST.xStr    = 0x0
 FST.xOffset = 0x4
 FST.xSize   = 0x8
+FST.size    = 0xC
 
 
 

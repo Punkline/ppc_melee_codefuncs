@@ -216,4 +216,19 @@ data.async_info.bMatch     = cr1.gt
 data.async_info.bSynced    = cr1.eq
 
 
+# --- RETURNS for <log.timestamp>
+log.timestamp.rFrame  = r3
+log.timestamp.fFrame  = f1
+log.timestamp.rTime   = r4
+log.timestamp.fTime   = f2
+log.timestamp.rBoot   = r5
+log.timestamp.fBoot   = f3
+log.timestamp.rIDComp = r6
+log.timestamp.rChange = r7
+log.timestamp.rMajor  = r8
+log.timestamp.rMinor  = r9
+log.timestamp.rTBU    = r10
+log.timestamp.rTBL    = r11
+
+
 .endif
