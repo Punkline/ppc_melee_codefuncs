@@ -1,0 +1,214 @@
+-==-
+GObj Info Scraper
+DPad left/right can be used in any scene after initialization to dump info about all GObjs in scene.
+
+DPad Left  = Order by PLinks
+DPad Right = Order by GXLinks (and include scene camera list)
+[Punkline]
+Revision ---- DOL Offset ---- Hex to Replace ---------- ASM Code -
+NTSC 1.02 --- 801a507c ---- 8019000c -> Branch
+.include "melee"
+melee MPad, mem, DVD
+punkpc ppc
+prolog rData, rMPad, rPress, rGProcs, rSize, rThis, rLink, rMax, rIDX, rCount, rGProc, rI, +0x20, xTemp, cr, ctr
+data.start
+  0: .asciz " GObj dumping %sLink table %8x -- SCENE MAJOR: %2x   MINOR: %2x   FRAME: %8f"
+  1: .asciz "P"
+  2: .asciz "GX"
+  3: .asciz "   %sLINK: %\x23 4x : %4d  -- %4x %4x %4x %4x"
+  4: .asciz "     OBJ: %8x -- %s   PROCS: %3d   GXPROC: %8x   DATA SIZE: %\x23 8x   START: %8x"
+  5: .asciz "     JOBJ DESCRIPTOR   FILE: %\x23 5x -- %s   DATA OFFSET: %\x23 8x"
+  6: .asciz "  NONE"
+  7: .asciz " SCENE"
+  8: .asciz "CAMERA"
+  9: .asciz " LIGHT"
+  10:.asciz " JOINT"
+  11:.asciz "   FOG"
+  12:.asciz "     GPROCS %4d -- %8x %8x %8x %8x"
+  13:
+  data.struct 0, "data.", xHead, xP, xGX, xLine, xDetails, xJObj, xNone, xScene, xCamera, xLight, xJoint, xFog, xGProcs, xTable
+
+  .byte data.xScene, data.xCamera, data.xLight, data.xJoint, data.xFog
+  align 2
+data.end rData
+bPLink = cr2.lt
+
+load rMPad, MPad.addr
+lwz rPress, MPad.xOnPress(rMPad)
+rlwinm. r0, rPress, MPad.mDPad
+beq+ _return
+  li rIDX, 0
+  bl <log.timestamp>
+  mtcrf MPad.crf.mDPad, rPress
+  fadds f1, log.timestamp.fFrame, log.timestamp.fTime
+  # combine frame count with time elapsed for this frame (using BUS speed to normalize scale)
+
+  mr r6, log.timestamp.rMajor
+  mr r7, log.timestamp.rMinor
+  addi r3, rData, data.xHead
+  crnot bPLink, MPad.bDRight
+  bt- MPad.bDRight, _OnRight
+
+    _OnLeft:  # PLink messages
+    lwz rLink, r13.xPLinks(r13)
+    addi r4, rData, data.xP
+    li rMax, 63
+    b 0f
+
+    _OnRight:  # GXLink messages
+    lwz rLink, r13.xGXLinks(r13)
+    addi r4, rData, data.xGX
+    li rMax, 64
+
+    0:
+    mr r5, rLink
+    bl <log.print>
+    # print header line for table of GObj links
+
+
+    _for_each_table_link:
+    lwzx rThis, rLink, rIDX
+    li rCount, 0
+
+      _for_each_GObj:
+      cmpwi rThis, 0
+      bge- _end_of_linked_list
+      addi r3, rData, data.xLine
+      addi r4, rData, data.xP
+      bt+ bPLink, 0f; addi r4, rData, data.xGX; 0:
+      srwi r5, rIDX, 2
+      mr r6, rCount
+      lhz r7,  0x0(rThis)
+      lhz r8,  0x2(rThis)
+      lhz r9,  0x4(rThis)
+      lhz r10, 0x6(rThis)
+      bl <log.print>
+      # print summary of identifying GObj data
+
+      lwz r3, GObj.xData(rThis)
+      bl <mem.info>
+      mr. r8, mem.info.rSize
+      li r9, 0
+      ble- 0f; lwz r9, GObj.xData(rThis); 0:
+      # Data and data size have been checked for
+
+      lwz r3, GObj.xGProc(rThis)
+      li rGProcs, -1
+
+        _for_GProc_count:
+        cmpwi r3, 0
+        addi rGProcs, rGProcs, 1
+        bge- 0f
+          lwz r3, GProc.xNext(r3)
+          b _for_GProc_count;
+          # count is printed in upcoming line, and is used
+
+      0:
+      lbz r0, GObj.xObjType(rThis)
+      cmpwi r0, GObj.type.Fog
+      li r3, data.xNone
+      bgt- 0f
+        addi r3, rData, data.xTable
+        lbzx r3, r3, r0
+        # get proper object name from table, if one applies
+
+      0:
+      addi r5, rData, r3
+      addi r3, rData, data.xDetails
+      lwz r4, GObj.xObj(rThis)
+      mr r6, rGProcs
+      lwz r7, GObj.xGXDraw(rThis)
+      bl <log.print>
+      # print out info about GProcs, data, and GXDraw
+
+      lbz r0, GObj.xObjType(rThis)
+      cmpwi r0, GObj.type.JObj
+      bne+ _gproc_setup
+
+        _has_JObj_skeleton:
+        lwz r3, GObj.xObj(rThis)
+        lwz r3, JObj.xJDesc(r3)
+        cmpwi r3, 0
+        bge- _gproc_setup
+        # if a GObj is using a JObj with an attached JObjDesc, then try to find where it's from
+
+        bl <mem.info>
+        mr. r3, mem.info.rStart
+        bge- _gproc_setup
+        # if JObjDesc is not part of an obvious allocation, then skip check
+
+        mr r6, mem.info.rOffset
+        lwz r0, r13.xFSTCount(r13)
+        lwz r3, arch.xFileSize(r3)
+        mulli r5, r0, FST.size
+        lwz r4, r13.xFSTEntries(r13)
+        mtctr r0
+        addi r0, r5, FST.xSize
+        add r5, r4, r0
+        # we guess the file by trying to match its file size to params in the FST
+        # - guess may not be accurate for files that have other files of the same size on disk
+        # - most (all?) vanilla files should be unique by this method
+
+          _for_each_FST:
+          lwzu r0, -FST.size(r5)
+          cmpw r0, r3
+          bdnzf+ eq, _for_each_FST
+          # cute little FST parsing loop uses only 1 check for 2 conditions:
+          # - if ctr expires, then decrementer loop will end
+          # - if match is found, then condition will fail
+
+        bne- _gproc_setup
+        # this extra check happens outside of the loop, after finishing
+        # - it differentiates between what caused the loop to break by asserting a match
+
+        _file_found:
+        lwz r5, FST.xStr-FST.xSize(r5)
+        mfctr r4
+        addi r3, rData, data.xJObj
+        bl <log.print>
+        # print info about the JObj skeleton found in this GObj, if available
+
+      _gproc_setup:
+      lwz rGProc, GObj.xGProc(rThis)
+      li rI, -4
+      # skip GProc printout if no gprocs
+
+      _while_gprocs:
+      addi r3, rData, data.xGProcs
+      addi rI, rI, 4
+      mr. r5, rGProc
+      mr r4, rI
+      bge- _end_nl
+      lwz rGProc, GProc.xNext(rGProc);
+      mr. r6, rGProc
+      bge- 0f; lwz rGProc, GProc.xNext(rGProc); 0:
+      mr. r7, rGProc
+      bge- 0f; lwz rGProc, GProc.xNext(rGProc); 0:
+      mr. r8, rGProc
+      bge- 0f; lwz rGProc, GProc.xNext(rGProc); 0:
+      bl <log.print>
+
+    _end_nl:
+    bl <log.nl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+_return:
+epilog
+lwz r0, 0xC(r25)
+.long 0
