@@ -51,6 +51,10 @@ melee.module arch
   items.method arch.__params
   # create a new items pseudo-object to store list of param names ...
 
+  arch.align = 0
+  # default alignment is 0, for end of archive
+  # - set this to 5 to make files align with DVD read buffer
+
   .irp param, arch.symbols, arch.relocs, arch.refs, arch.__id, arch.__inst; \param = 0; .endr
   # - these will store a state of the block context using various symbols ...
 
@@ -140,9 +144,7 @@ melee.module arch
     arch.__strings\id arch.__symbols_loop
     # handle generation of symbols table and symbol strings ...
 
-    .if arch.__mem.s > 5;  align 5; .endif
-    # align nested files to ceiling 0x20 bytes, for easy loading purposes
-    # - the top layer in the archive does not recieve this alignment
+    align arch.align
 
     arch.__total_size\id = .-arch.__start\id
     # resolve final piece of errata by calculating total file size ...
@@ -160,9 +162,10 @@ melee.module arch
         # create new errata for symbol start labels ...
 
       .endif
-    .endr; arch.__q = 0; .irp str, \va
+    .endr; arch.__q = 0; arch.__str_start\id = .
+    .irp str, \va
       .ifnb \str
-        sidx.noalt "<arch.__sym\id>", arch.__q, " = ."
+        sidx.noalt "<arch.__sym\id>", arch.__q, " = .-arch.__str_start\id"
         .asciz "\str"
         arch.__q = arch.__q + 1
       .endif
@@ -197,6 +200,10 @@ melee.module arch
   arch.event.rParams = r10  # region of file pointed to by this symbol
   arch.event.rArch   = r11  # archive object
   arch.event.rSelf   = r12  # address of this event symbol definition
+
+  # arg interface for "init.call" callbacks
+  arch.init.call.rArch = r3 # archive object
+  arch.init.call.rSelf = r4 # address of this callback (in file)
 
 .endif
 /**/
