@@ -2,4 +2,5 @@
 .include "punkpc.s"
 module.library melee, ".s", all
 .endif
-melee.subdir "melee_modules/", ".s"
+melee.maindir "melee_modules/"
+melee.subdir, ".s"

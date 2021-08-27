@@ -41,9 +41,11 @@ melee.module arch
   punkpc items, stack, align
 
   module.library arch, ""
-  arch.subdir "arch_resources/", ""
+  arch.maindir "melee_modules/arch_resources/"
+  arch.subdir "", ""
   # set up a module library called 'arch' for reaching the resources folder
   # - arch.raw can be used to emit files as binary inline with your assembly
+  # - arch.subdir can used to reach alternative directory paths
 
 
   items.method arch.__params
