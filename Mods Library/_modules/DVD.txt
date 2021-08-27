@@ -433,6 +433,8 @@ enum (eq), +8, bInfo,  +4, bDest, bCallback, bArg  # working bools
 enum (cr1.lt), +1, bNotSynced, bMatch, bSynced   # returned bools
 mfcr rCR
 cmpwi rArg, -1
+lwz rAsync, r13.xDVDAsyncQueue(r13)
+mr rQuery, rArg
 bne+ _begin
 # we check for '-1' as a special input case
 
@@ -443,8 +445,7 @@ bne+ _begin
   # - bSynced will be true if no async event is present in queue (DVD load is synced with CPU)
 
 _begin:
-mr. rQuery, rArg
-lwz rAsync, r13.xDVDAsyncQueue(r13)
+cmpwi rQuery, 0
 # otherwise, check to see if queue is empty
 
 cmpwi cr1, rAsync, 0
