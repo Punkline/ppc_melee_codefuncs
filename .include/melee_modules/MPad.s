@@ -5,6 +5,28 @@ melee.module MPad
 MPad.addr = 0x804C1FAC
 # This base address can be used to reach the vanilla MPad structures, without any codes
 
+MPad.size = 0x44
+# There are 5 MPads in an array. You can index them with this size value
+
+MPad.xP1 = MPad.size * 0
+MPad.P1 = MPad.addr + MPad.xP1
+# controller 1 (P1)
+
+MPad.xP2 = MPad.size * 1
+MPad.P2 = MPad.addr + MPad.xP2
+# controller 2 (P2)
+
+MPad.xP3 = MPad.size * 2
+MPad.P3 = MPad.addr + MPad.xP3
+# controller 3 (P3)
+MPad.xP4 = MPad.size * 3
+MPad.P4 = MPad.addr + MPad.xP4
+# controller 4 (P4)
+
+MPad.xAny = MPad.size * 4
+MPad.Any = MPad.addr + MPad.xAny
+# any controller (detects all controllers in common struct)
+
 # --- Controller Digital Data bools - these are mapped in each of the button fields
 MPad.crf.mCStick = 0x20
 MPad.bCStick    =  8;  MPad.mCStick    = 0xF00000   # --- CStick nibble
@@ -86,10 +108,6 @@ MPad.xAnalogB  = 0x3C  # -
 
 # --- Error Code - detects status of the controller with error codes
 MPad.xErr = 0x41  # signed byte -  0: NONE,  -1: NO CONTROLLER,  -2: INITIALIZING,  -3: INVALID
-
-MPad.size = 0x44
-# There are 4 MPads in an array. You can index them with this size value
-
 
 
 .endif
