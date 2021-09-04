@@ -82,6 +82,17 @@ mr r3, rIcon
 lbz	r0, 0x0002 (r3)
 .long 0
 
+-==-
+!
+AT END OF MINOR SCENE
+[Punkline]
+
+Revision ---- DOL Offset ---- Hex to Replace ---------- ASM Code -
+NTSC 1.02 --- 0x801a40f4 ---- 3c608047 -> Branch
+
+_return:
+lis	r3, 0x8047
+.long 0
 
 -==-
 !

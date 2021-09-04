@@ -440,6 +440,7 @@ bne+ _begin
 
   lwz rRet, r13.xDVDAsyncQueue(r13)
   cmpwi cr1, rRet, 0  # this will record true or false in bSynced ...
+  crmove bMatch, bNotSynced
   b _return
   # '-1' will return immediately with the front of the queue, and a check to see if it's null
   # - bSynced will be true if no async event is present in queue (DVD load is synced with CPU)
@@ -1050,12 +1051,11 @@ addi rArgs, sp, sp.xArgs
 mr rArch, r11
 stswi r3, rArgs, 0x1C
 mr rDict, r12
-stw r10, 0x1C(rArgs)
 lwz rCount, 0(rDict)
 
 _for_each:
   subic. rCount, rCount, 1
-  ble- _return
+  blt- _return
   lwzu r4, 0x4(rDict)
   mr r3, rArch
   cmpwi r4, 0
@@ -1064,15 +1064,15 @@ _for_each:
   bl <arch.symbol>
   cmpwi r3, 0
   bge+ _for_each   # only run callback if symbol was found
+    mr r10, r3
     lswi r3, rArgs, 0x1C
-    lwz r10, 0x1C(rArgs)
     mtcr rCR
     lwz r12, 0(rDict)
     mr r11, rArch
     mtlr r12
     blrl
     b _for_each
-    # pass r3...r10 and cr1...cr7 to callback, as given to this handler
+    # pass r3...r9 and cr1...cr7 to callback, as given to this handler
     # r11 = address of this archive object
     # r12 = address of callback self
 
@@ -1088,8 +1088,8 @@ _head:
 
 _list_start:
   .long <<arch.init.event.flush>>
-  .long <<arch.init.event.call>>
   .long <<arch.init.event.static>>
+  .long <<arch.init.event.call>>
 
 
   # <-- add to this list to append defaults...
@@ -1121,19 +1121,21 @@ The file region for this symbol must begin with the following structure:
 [Punkline]
 <arch.init.event.flush> NTSC 1.02
 .include "melee"
-punkpc ppc
-melee arch
+melee ppc, arch
+b 0f; .asciz "init.flush"; align 2; 0:
+
 prolog rParams, rCount
 lwz rCount, 0(arch.event.rParams)
 subi rParams, arch.event.rParams, 4
 
   _for_each:
   subic. rCount, rCount, 1
-  ble- _return
+  blt- _return
   # terminate when count is finished
 
-  lwzu r3, 0x8(rParams)
   lwz r4, 0x4(rParams)
+  lwzu r3, 0x8(rParams)
+  sub r4, r3, r4
   bl <data.flush_IC>
   b _for_each
   # flush each listed definition
@@ -1162,8 +1164,9 @@ The file region for this symbol must begin with the following structure:
 [Punkline]
 <arch.init.event.call> NTSC 1.02
 .include "melee"
-punkpc ppc
-melee arch
+melee ppc, arch
+b 0f; .asciz "init.call"; align 2; 0:
+
 prolog rArch, rParams, rCount
 mr rArch, arch.event.rArch
 mr rParams, arch.event.rParams
@@ -1180,7 +1183,7 @@ stw rCount, 0(rParams)
 
 _for_each:
   subic. rCount, rCount, 1
-  ble- _return
+  blt- _return
   # handle each callback
 
   lwzu r4, 4(rParams)
@@ -1214,15 +1217,16 @@ The file region for this symbol must begin with the following structure:
 
 <arch.init.event.static> NTSC 1.02
 .include "melee"
-punkpc regs
-melee arch
+melee ppc, arch
+b 0f; .asciz "init.static"; align 2; 0:
+
 regs rParams, rCount
 subi rParams, arch.event.rParams, 4
 lwz rCount, 0(arch.event.rParams)
 
 _for_each:
   subic. rCount, rCount, 1
-  blelr-
+  bltlr-
   lwzu r5, 0x8(rParams)
   lwz r0, 0x4(rParams)
   stw r0, 0(r5)
