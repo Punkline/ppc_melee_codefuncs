@@ -1,0 +1,26 @@
+-==-
+TEST 06 - Print Hello World (in any scene)
+Loads "hello.wrl" from disk, if it exists
+
+A GProc is set up from a function in the file that lets you print "Hello World!" from DPad Up presses
+
+(It loads every scene, and may cause any async preloads to wait for finishing on scene transitions)
+[Punkline]
+
+Revision ---- DOL Offset ---- Hex to Replace ---------- ASM Code -
+NTSC 1.02 --- 801a40d0 ---- 819a0008 -> Branch
+.include "melee"; melee
+data.start
+  .asciz "hello.wrl"
+  align 2
+
+data.end r3  # r3 = file query (path string)
+li r4, 0     # r4 = Output (0 = alloc new from memory region 0 (heap))
+li r5, 0     # r5 = Archive Object Output (0 = alloc new from memory region 0 (heap))
+bl <DVD.read_archive>
+# if file isn't on disk, then this will return with a silent error
+# - code contained in "init.call" callback symbol is executed automatically, if file is found
+
+_return:
+lwz	r12, 0x0008 (r26)
+.long 0
