@@ -1,0 +1,119 @@
+-==-
+
+TObj Operations
+
+Methods:
+
+TObj.set_TexAnim
+# Assign a TexAnim directly to a TObj with custom starting frame and frame rate
+# - instantiates an AObj for this TObj, freeing any previously assigned AObjs before construction
+  args: rTObj, rTexAnim, fStart, fRate
+  <-- rTObj, rTexAnim, rAObj
+
+TObj.set_TexAnim_ints
+# Alternative syntax uses high/low param in r5 to replace floating point inputs
+  args: rTObj, rTexAnim, rParam
+  <-- rTObj, rTexAnim, rAObj
+  # rParam:
+  #  +FFFF0000 = anim starting frame (0xFFFF -- unsigned hword; 0-bit mantissa)
+  #  +0000FFFF = anim frame rate     (-0x7F.FF -- signed hword; 8-bit mantissa)
+  
+
+TObj.addAnimAll
+# Assign a TexAnim directly to a TObj
+  args: rTObj, rTexAnim
+  # - instantiates an AObj for this TObj, freeing any previously assigned AObjs before construction
+
+TObj.reqAnimAll
+# Flags a TObj for animation, and sets a starting frame
+  args: rTObj, fStart
+[HSD, Punkline]
+
+<TObj.addAnimAll> NTSC 1.02
+# Assign a TexAnim directly to a TObj
+# - instantiates an AObj for this TObj, freeing any previously assigned AObjs before construction
+
+# --- args:
+  # r3 = TObj
+  # r4 = TexAnim
+b 0x8035e708
+
+<TObj.reqAnimAll> NTSC 1.02
+# Flags a TObj for animation, and sets a starting frame
+
+# --- args:
+# r3 = TObj
+# f1 = Anim Starting Frame
+b 0x8035e800
+
+
+# --- custom functions
+<TObj.set_TexAnim> NTSC 1.02
+# Assign a TexAnim directly to a TObj, with input ReqAnim and AObjRate float values
+# - instantiates an AObj for this TObj, freeing any previously assigned AObjs before construction
+
+# --- args:
+# r3 = TObj
+# r4 = TexAnim (links a TObj to an AObjDesc)
+# f1 = Anim Starting Frame
+# f2 = Anim Frame Rate
+
+# --- returns:
+# r3 = TObj (as given)
+# r4 = TexAnim (as given)
+# r5 = AObj (for this TObj)
+
+.include "melee"
+punkpc ppc
+melee HSDObj
+prolog rTObj, rTAnim, rAObj, fStart, fRate
+  mr rTObj, r3
+  fmr fStart, f1
+  mr rTAnim, r4
+  fmr fRate, f2
+  bl <TObj.addAnimAll>  # this function frees AObjs before replacing them
+  mr r3, rTObj
+  fmr f1, fStart
+  lwz rAObj, TObj.xAObj(rTObj)
+  bl <TObj.reqAnimAll>
+  mr r3, rAObj
+  fmr f1, fRate
+  bl <AObj.setRate>
+  # TObj has had its old AObj destroyed, and a new one has been constructed with starting frame/rate
+
+  _return:
+  mr r3, rTObj
+  mr r4, rTAnim
+  mr r5, rAObj
+epilog
+blr
+
+
+
+<TObj.set_TexAnim_ints> NTSC 1.02
+# Alternative version of set_TexAnim that uses integer inputs instead of floats:
+# --- args:
+# r3 = TObj
+# r4 = TexAnim
+# r5 = Params:
+#      +FFFF0000 = anim starting frame (0xFFFF -- unsigned hword; 0-bit mantissa)
+#      +0000FFFF = anim frame rate     (-0x7F.FF -- signed hword; 8-bit mantissa)
+
+# --- returns:
+# r3 = TObj (as given)
+# r4 = TexAnim (as given)
+# r5 = AObj (for this TObj)
+
+stwu sp, -0x10(sp)
+  stw r5, 0x8(sp)
+  lis r0, 0x804
+  mfspr r5, 919  # backup qr7
+    psq_l f1, 0x8(sp), 1, 4  # fast-cast QR4 == unsigned hword ints (no mantissa)
+    mtspr 919, r0
+    psq_l f2, 0xA(sp), 1, 7  # custom QR7 == signed hword fixed points (8-bit fraction)
+  mtspr 919, r5  # restore old qr7
+addi sp, sp, 0x10
+b <TObj.set_TexAnim>
+# end temporary frame, and branch into real funciton using floating point args
+
+

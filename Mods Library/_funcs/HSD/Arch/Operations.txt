@@ -1,0 +1,315 @@
+
+-==-
+
+Archive Functions
+
+
+DVD.read_archive  # rArch = alloc (or region ID) for output archive obj
+args: rFile, rOut, rArch
+<-- rNum, rOut, (null), rSize, (null), rArch, rMeta, rPath, (null)
+<-- cr1.eq: bInvalid
+
+arch.symbol  # Look up region in file using a symbol string
+args: rArch, rString
+<-- rAddr, rString
+# - rArch may be ArchObj or File start
+# - rAddr will be null if not found
+
+arch.init  # Initialize an archive, if not already initialized
+args: rAlloc, rFile, rDict
+<-- rArch
+# - rAlloc may be a 0x44-byte alloc, or a mem.ID (0...5)
+# - rDict will use default symbol events, if null
+
+# Init will use a dictionary to trigger arch.event
+# - events are only triggered on first attempt to call
+
+# Default init symbols are checked for if argument is null:
+"init.flush"  # flushes instruction cache for regions of the file
+"init.call"   # triggers callbacks included in the file
+"init.static" # creates static pointers to parts of the file
+
+# DVD.read_arch uses this default dictionary
+
+
+
+arch.check_init  # Check to see if file has already been relocated
+args: rFile
+<-- cr1.lt: bInitialized,  cr1.gt: bRelocated,  cr1.eq: bNoRelocs
+# - bInitialized  is true only if reloc was proven
+# - bRelocated  is true when initialized, or no relocs are needed
+# - bNoRelocs  is true when no relocs are in the reloc table
+#   - having no relocs prevents bInitialized from being proven
+
+arch.event  # Launch callbacks to handle matching symbols from dictionary
+args: r3 ... r10, rArch, rDict, cr1 ... cr7
+# - r3 ... r9 are passed to each callback (r10 is ignored)
+# - rArch (r11) can be an ArchObj or a File
+# - rDict (r12) must be formatted like below...
+
+rDict  # Archive Symbol Event Dictionary format:
+0x00 : WORD  : pointer count
+0x04 : ARRAY : start of pointer table (0x4-byte elements)
+
+# Each dictionary entry points to a callback that starts with:
+0x00 : BRANCH INSTRUCTION : (branch over the following string)
+0x04 : STRING : null-terminated symbol string definition
+...  : BRANCH DESTINATION : (callback instructions)
+
+arch.init  # relocate and initialize an archive file (*.dat)
+args: rArch, rFileStart, rDict
+# If rDict is given as null, then default symbols will be used from arch.dict.init_default_events
+
+arch.symbol
+args: rArchive, rSymbol
+<-- rAddr
+[HSD, Punkline]
+
+<DVD.read_archive> NTSC 1.02
+# DVD outputs a DAT or USD file, and then initializes it
+# - archive object will use or generate a 0x44-byte allocation that can be used to reference symbols
+# --- args:
+# r3 = file (entrynum, path string pointer, or dvd offset)
+# r4 = output location (addr=target, 0=dynamic, 3=persistent, 4=semi-persistent)
+# r5 = archive object (-1 for none, else syntax is similar to r4)
+
+# --- returns:
+# cr1.eq = warning 'File not found'
+# cr1.lt = warning 'File still loading'
+# r3  = entrynum
+# r4  = output location
+# r5  =   0   -- (read offset is always 0 for full loads)
+# r6  = file size
+# r7  =   -1  -- (sync callback is always blank on synchronous loads)
+# r8  = archive object
+# r9  = Allocation Metadata
+# r10 = path string
+# r11 = 0
+mr r8, r5
+li r5, 0
+li r6, -1
+li r7, -1
+b <DVD.__read_handler>
+
+
+<arch.symbol> NTSC 1.02
+# Look up a symbol string in a given Archive Object to return the part of the file it represents
+
+# --- args:
+# r3 = archive object (or file start)
+# r4 = search query (address of string)
+
+# --- returns:
+# r3 = address of file section (or 0 if symbol not found)
+# r4 = given query
+
+.include "melee"
+punkpc ppc
+melee arch
+prolog rArch, rQuery, +0x50, xArch
+mr rArch, r3
+lwz r5, arch.xFileStart(rArch)
+cmpwi r5, 0
+mr rQuery, r4
+bge- _fake_archobj
+lwz r0, arch.xFileSize(rArch)
+lwz r5, arch.xFileSize(r5)
+cmpw r0, r5
+beq+ _have_archobj
+# If the archive's copied header file size matches the real header's file size, archobj is verified
+# else, we will create a fake archive in the stack frame to pass on to the symbol function
+
+  _fake_archobj:
+  lwz r6, arch.xNodeCount(r3)
+  addi rArch, sp, sp.xArch
+  stw r6, arch.xNodeCount(rArch)  # count...
+  addi r4, r3, 0x20
+  lwz r0, arch.xDataSize(r3)
+  stw r4, arch.xData(rArch)       # reloc base address...
+  add r5, r4, r0
+  lwz r0, arch.xRelocCount(r3)
+  slwi r4, r0, 2
+  add r5, r5, r4
+  lwz r0, arch.xRefCount(r3)
+  slwi r6, r6, 3
+  stw r5, arch.xNodeTable(rArch) # Symbol link node table...
+  slwi r0, r0, 3
+  add r5, r6, r5
+  add r0, r5, r0
+  stw r0, arch.xSymbolStrings(rArch)  # Symbol string section...
+  # these 4 values are all that's needed to parse for symbols
+
+_have_archobj:
+mr r3, rArch
+mr r4, rQuery
+bl 0x80380358
+mr r4, rQuery
+epilog
+blr
+
+
+
+<arch.check_init> NTSC 1.02
+# Check if an archive file has already been relocated
+
+# --- args:
+# r3 = start of archive file
+
+# --- returns:
+# r3 = start of archive file
+# r4 = start of archive relocation  (null if no reloc table)
+# r5 = start of archive data (relocation base address)
+# cr1.lt = bInitialized -- a relocated pointer was found
+# cr1.gt = bRelocated -- true if bInitiailized OR bNoRelocs
+# cr1.eq = bNoRelocs -- true if no pointers need relocation
+
+.include "melee"
+punkpc regs, enum
+melee arch
+regs rStart, rRT, rBase
+enum (cr1.lt), +1, bInitialized, bRelocated, bNoRelocs
+lwz r0, arch.xRelocCount(rStart)
+lwz r4, arch.xDataSize(rStart)
+cmpwi cr1, r0, 0
+addi rBase, rStart, 0x20
+add r0, rBase, r4
+li rRT, 0
+bt- bNoRelocs, 0f
+  mr rRT, r0
+  lwz r0, 0(rRT)
+  lwzx r0, rBase, r0
+  cmpwi r0, 0
+0:
+crandc bInitialized, lt, bNoRelocs  # cr0 lt value is ignored in cases where bNoRelocs is true
+cror bRelocated, bNoRelocs, bInitialized
+blr  # if no relocs are available, then a file doesn't need relocation
+# - this means that bRelocated is true if either bInitialized or bNoRelocs is true
+#   - bInitialized ensures a file is relocated and installed, with evidence from the reloc table
+#   - bRelocated can be used to check if a file symbol is safe to browse, with no evidence of init
+
+
+
+
+<arch.init> NTSC 1.02
+# Initialize a newly loaded archive file (DAT or USD file)
+# - init will skip already-initialized files to prevent corruption of pointers in data sections
+# - if a memory region ID is given instead of an allocation address, an allocation will be generated
+
+# --- args:
+# r3 = allocation for writing Archive Object information
+# r4 = File start -- to be initialized
+# r5 = initialization event symbol dictionary (or 0 for defaults)
+
+# --- returns:
+# r3 = instantiated archive object (from given r3)
+
+# --- callback event interface:
+# r3 = arch.init.event.rParams -- symbol region, for params
+# r4 = arch.init.event.rArch   -- the archive object for this file
+# r5 = arch.init.event.rCB     -- address of callback (self -- for local data)
+
+
+.include "melee"
+punkpc ppc
+melee mem, arch
+prolog rArch, rStart, rSize, rInit, rCB, cr
+mr. rInit, r5
+mr rStart, r4
+blt- 0f
+  lis r0, <<arch.dict.init_default_events>>@h
+  ori r28, r0, <<arch.dict.init_default_events>>@l
+0:
+mr. rArch, r3
+blt+ 0f
+
+  _archive_alloc:
+  li r4, arch.size
+  # r3 = HSD Memory region ID to allocate from ...
+  # r4 = (size of an 'Archive' object in RAM)
+
+  bl 0x80015bd0
+  cmpwi rArch, 2
+  mr rArch, r3
+  blt+ 1f; lwz rArch, CacheMeta.xAlloc(r3); 1:
+  # this is necessary to extrac the start address from preload cache metadata
+
+0:
+mr r3, rStart
+bl <arch.check_init>
+bt arch.check_init.bInitialized, _return
+# skip initialization if this file has already been initialized...
+
+  mr r3, rArch
+  mr r4, rStart
+  lwz r5, 0(rStart)
+  bl 0x80016a54
+  # else, initialize DAT file, and populate rArch obj with params
+
+  mr r12, rInit
+  mr r11, rArch
+  bl <arch.event>
+  # trigger initialization event by passing dictionary and arch object
+  # - all arguments are skipped, since there is nothing specific being passed
+
+_return:
+mr r3, rArch
+epilog
+blr
+
+
+
+<arch.event> NTSC 1.02
+# Pass a dictionary of symbol:callback entries to this handler to trigger them as events
+
+# --- args:
+# r3...r9 = (stuff you want to give to each symbol-triggered callback in the event)
+# r10 = (unused)
+# r11 = archive object (will trigger callbacks for each matching symbol in dictionary)
+# r12 = archive symbol event dictionary  (see format below)
+
+# --- dictionary format:
+# 0x0 = number of element pointers
+# 0x4 = start of n-element table array... (not a pointer)
+
+# --- dictionary element format:
+# 0x0 = branch instruction -> callback start
+# 0x4 = start of a null-terminated symbol string representing this event
+#     - string must be unique for this dictionary, and becomes a key for matching symbol in file
+
+.include "melee"
+punkpc ppc
+melee arch
+prolog rCR, rArgs, rCount, rDict, rArch, +0x30, xArgs
+mfcr rCR
+addi rArgs, sp, sp.xArgs
+mr rArch, r11
+stswi r3, rArgs, 0x1C
+mr rDict, r12
+lwz rCount, 0(rDict)
+
+_for_each:
+  subic. rCount, rCount, 1
+  blt- _return
+  lwzu r4, 0x4(rDict)
+  mr r3, rArch
+  cmpwi r4, 0
+  bge- _for_each    # skip disabled dictionary elements
+  addi r4, r4, 4
+  bl <arch.symbol>
+  cmpwi r3, 0
+  bge+ _for_each   # only run callback if symbol was found
+    mr r10, r3
+    lswi r3, rArgs, 0x1C
+    mtcr rCR
+    lwz r12, 0(rDict)
+    mr r11, rArch
+    mtlr r12
+    blrl
+    b _for_each
+    # pass r3...r9 and cr1...cr7 to callback, as given to this handler
+    # r11 = address of this archive object
+    # r12 = address of callback self
+
+_return:
+epilog
+blr

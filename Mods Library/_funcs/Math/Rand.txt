@@ -1,0 +1,117 @@
+-==-
+
+Random Number Generators
+
+rand.int  # return random 32-bit integer
+<-- rRand
+
+rand.max_int  # random int between 0 and 'rMax'
+args: rMax
+<-- rRand
+
+rand.float  # random percent between 0.0 and 1.0
+<-- fRand
+
+rand.max_float  # random float between 0 and 'fMax'
+args: fMax
+<-- fRand
+
+rand.fill  # fill target with random bits for 'rSize' bytes
+args: rOut, rSize
+<-- rOut
+
+[?, Punkline]
+
+
+<rand> NTSC 1.02
+# Produce a random 32-bit integer
+# --- returns:
+# r3 = rRand
+b 0x803804f8
+
+
+
+<rand.float> NTSC 1.02
+# Produce a random float between 0.0 and 1.0
+# --- returns:
+# f1 = fRand
+b 0x80380528
+
+
+
+<rand.max_int> NTSC 1.02
+# Produces a random integer between 0 and the given number
+# --- args:
+# r3 = rMax
+
+# --- returns:
+# r3 = rRand
+b 0x80380580
+
+<rand.max_int> NTSC 1.02
+# Produces a random integer between 0 and the given number
+# --- args:
+# r3 = rMax
+
+# --- returns:
+# r3 = rRand
+b 0x80380580
+
+<rand.max_float> NTSC 1.02
+# Produces a random float between 0 and the given number
+# --- args:
+# f1 = fMax
+
+# --- returns:
+# f1 = fRand
+mflr r0
+stwu sp, -0x20(sp)
+stw r0, 0x20+4(sp)
+stfs f1, 0x10(sp)
+bl <rand.float>
+lfs f0, 0x10(sp)
+fmuls f1, f1, f0
+lwz r0, 0x20+4(sp)
+addi sp, sp, 0x20
+mtlr r0
+blr
+
+
+
+<rand.fill> NTSC 1.02
+# Fill n bytes with random bits at target location
+# --- args:
+# r3 = rOut
+# r4 = rSize
+
+# --- returns
+# r3 = rOut
+.include "melee"
+punkpc ppc
+prolog rOut, rBuffer, rSize
+
+mr rBuffer, r3
+addi rOut, r3, -2
+mr. rSize, r4
+ble- _return
+# only fill if a length was given
+
+_for_n_hwords:
+  lis r3, 2
+  subi r3, r3, 1  # a 17-bit 2's complement modulo should provide good entropy for hword fill
+  bl <rand.max_int>
+  subic. rSize, rSize, 2
+  blt- _for_odd_byte
+  sthu r3, 0x2(rOut)
+  bgt+ _for_n_hwords
+  b _return
+
+_for_odd_byte:
+stb r3, 0x2(rOut)
+# we fill with hwords, but string might be unaligned to hwords
+# - this extra byte at the end handles this case, if it applies
+
+_return:
+mr r3, rBuffer
+epilog
+blr
