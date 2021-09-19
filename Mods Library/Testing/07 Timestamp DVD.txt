@@ -1,0 +1,375 @@
+-==-
+
+Log Timestamps of DVD loads
+dpad left - DVD.read
+dpad right - altered DVD.read
+dpad down - vanilla DVD read func
+
+[Punkline]
+Revision ---- DOL Offset ---- Hex to Replace ---------- ASM Code -
+NTSC 1.02 --- 0x80260c14 ---- 88030002 -> Branch
+.include "melee";
+punkpc ppc          # powerpc utilities
+melee MPad, HSDObj, DVD, mem   # controller pad symbols and HSD Symbols
+regs -1, /*
+*/ (r31), rHand, rBase, rHandJObj, rInput, /*
+*/ (r24), rIcon, rBackup, /*
+*/ (r20), rIconID, rPlayerID
+
+# -- these registers help us understand the context of this injection point
+# 803f0a48 = base address in rBase
+
+r13.xCSSJObjRoot    = -0x49E0
+# r13 offset of root JObj for CSS icons/portraits
+
+enum (0x80), +1, SFX.true, SFX.false
+# SFX IDs
+
+mr rIcon, r3
+mr rBackup, r4
+prolog r16, fStart, +0x100, xReturns
+# create stack frame to protect our registers, as part of the template...
+
+regs /*
+*/ (r27), rData, rSFX, rMPad, /*
+*/ (r22), rStart, rRoot, /*
+*/ (r18), rIDX, rAlloc
+
+# -- these registers are used just for this code, and have nothing to do with injection context
+
+load rMPad, MPad.addr
+mulli r0, rPlayerID, MPad.size
+add rMPad, rMPad, r0
+lwz r0, MPad.xOnPress(rMPad)
+mtcrf MPad.crf.mDPad, r0
+addi rStart, rBase, 0x803f0b24 - 0x803f0a48
+rlwinm. r0, r0, 0, MPad.mDPad
+lwz rRoot, r13.xCSSJObjRoot(r13)
+beq- _return
+# rStart = the start of the array of elements rIcon is pointing to
+# rRoot  = the root JObj of the CSS menu
+
+data.start
+  0: .long 0
+
+  1: .asciz "GmPause.usd"
+  2: .asciz " Load time: %f frames"
+  align 2
+
+  3: # Left
+  bl <DVD.read>
+  b _exit_stamp
+
+  4: # Right
+  bl <test.DVD.read>
+  b _exit_stamp
+
+  5: # Down
+  addi r5, sp, 0x20
+  bl 0x8001668c  # DVD.load
+
+  data.struct 0, "data.", xAlloc, xFile, xTime, xLeft, xRight, xDown
+
+  _exit_stamp:
+  bl <log.timestamp>
+  fsub f1, f2, fStart
+  addi r3, rData, data.xTime
+  bl <log.print>
+  b _return
+
+
+  _test_dvd_timestamp:
+  li r3, SFX.true
+  bl <SFX.play>
+  lwz r3, data.xAlloc(rData)
+  cmpwi r3, 0
+  blt+ _have_alloc
+
+    _new_alloc:
+    addi r3, rData, data.xFile
+    bl <DVD.file>
+    mr r3, DVD.file.rSize
+    bl <mem.alloc>
+    stw r3, data.xAlloc(rData)
+
+  _have_alloc:
+  bl <mem.info>
+  bf- mem.info.bIsAllocated, _new_alloc
+  mr rAlloc, mem.info.rAlloc
+  bl <log.timestamp>
+  fmr fStart, f2
+  add r0, rIDX, rData
+  addi r3, rData, data.xFile
+  mtctr r0
+  mr r4, rAlloc
+  bctr
+
+
+
+data.end rData
+bt- MPad.bDDown, _DDown
+bt- MPad.bDLeft, _DLeft
+bt- MPad.bDRight, _DRight
+b _return
+# The DPad bools encode a conditional branch to a programmable handler...
+
+  _DDown:
+  li rIDX, data.xDown
+  b _test_dvd_timestamp
+
+  _DLeft:
+  li rIDX, data.xLeft
+  b _test_dvd_timestamp
+
+  _DRight:
+  li rIDX, data.xRight
+  b _test_dvd_timestamp
+
+_return:
+epilog
+mr r4, rBackup
+mr r3, rIcon
+# recover old context before finishing injection code...
+
+# original instruction, and return from injection:
+lbz	r0, 0x0002 (r3)
+.long 0
+
+<test.DVD.read>
+.include "melee"
+punkpc ppc
+melee DVD, mem
+li r5, 0
+li r6, -1
+li r7, -1
+li r8, -1
+
+# <DVD.__read_handler> NTSC 1.02
+# Handles various types of read function inputs with verbose argument interface
+# - this is a low level function with a complex, but versatile interface
+# - the other DVD.read* funcs are made by wrapping around this function
+
+# --- args:
+# r3 = file (entrynum, path string pointer, or dvd offset)
+# r4 = output location (addr=target, 0=dynamic, 3=persistent, 4=semi-persistent)
+# r5 = file read offset (0 is start)
+# r6 = bytes to load
+# - offset and bytes are unsigned, and will cap at file boundaries
+# r7 = sync callback (0 for none)
+# r8 = archive object (-1 for none, else syntax is similar to r4)
+# r9 = sync callback arg (optional -- passed to sync callback)
+
+# --- sync callback args:
+# r3 = unknown index from 0x4(rAsync) -- sampled from -0x5650(r13) on async creation
+# r4 = Copy of arg r9 from function args
+# r5 = 0
+# r6 = 0 if no error from DVD
+
+# --- returns:
+# cr1.eq = warning 'File not found'
+# cr1.lt = warning 'File still loading'
+# r3  = entrynum
+# r4  = output location
+# r5  = read offset
+# r6  = read size (-1 if unable to load file)
+# r7  = sync callback (if applicable)
+# r8  = archive object (if applicable)
+# r9  = Allocation Metadata
+# r10 = path string
+# r11 = async file info pointer (if applicable)
+# Handles various types of read function inputs with verbose argument interface
+# - this is a low level function with a complex, but versatile interface
+# - the other DVD.read* funcs are made by wrapping around this function
+
+# --- args:
+# r3 = file (entrynum, path string pointer, or dvd offset)
+# r4 = output location (addr=target, 0=dynamic, 3=persistent, 4=semi-persistent)
+# r5 = file read offset (0 is start)
+# r6 = bytes to load
+# - offset and bytes are unsigned, and will cap at file boundaries
+# r7 = sync callback (0 for none)
+# r8 = archive object (-1 for none, else syntax is similar to r4)
+# r9 = sync callback arg (optional -- passed to sync callback)
+
+# --- sync callback args:
+# r3 = unknown index from 0x4(rAsync) -- sampled from -0x5650(r13) on async creation
+# r4 = Copy of arg r9 from function args
+# r5 = 0
+# r6 = 0 if no error from DVD
+
+# --- returns:
+# cr1.eq = warning 'File not found'
+# cr1.lt = warning 'File still loading'
+# r3  = entrynum
+# r4  = output location
+# r5  = read offset
+# r6  = read size (-1 if unable to load file)
+# r7  = sync callback (if applicable)
+# r8  = archive object (if applicable)
+# r9  = Allocation Metadata
+# r10 = path string
+# r11 = async file info pointer (if applicable)
+
+prolog rAsync, rStr, rMeta, rArch, rSyncCB, rBytes, rStart, rOut, rNum, rSize, rSyncArg, rArgs
+# saved registers for r31 -= 1 ...
+# - the first 8 registers are ordered to resemble part of the return interface
+
+enum (cr1.eq), +1, bInvalid,  (cr1.lt), bAsync, (lt), bIsAddr
+# returned bools
+
+sp.temp +9<<2, xArgs
+addi rArgs, sp, sp.xArgs
+# rArgs now points to a small temporary allocation added to the size of our stack frame
+# - space for the first 8 registers on argument copy, and return copy
+
+
+stswi r3, rArgs, 7<<2
+# we only copy 7 from the input args ...
+
+
+# At this point, we're ready to pass the r3 'file' arg to .file ...
+bl <DVD.file>
+stw r3, 0(rArgs)
+# update r3 with validated query
+
+lmw rNum, 0(rArgs)
+lwz rSyncArg, 6<<2(rArgs)
+li rMeta, 0
+li rStr, 0
+li rAsync, 0
+# rSyncArg isn't part of the return interface, so it doesn't quite fit in
+# The other registers default to 0
+
+bt- bInvalid, _return
+# If file couldn't be found, return immediately
+# - the cr1 bit will also be returned as true, so it may be checked at a higher level
+
+  _have_file:
+  mr rNum, r3
+  mr rStr, r4
+  # save returned file information in uninitialized registers
+
+  sub rSize, r5, rStart
+  cmplw rBytes, rSize
+  ble+ 0f; mr rBytes, rSize; 0:
+  addi rSize, rBytes, 0x1F
+  rlwinm rSize, rSize, 0, ~0x1F
+  # Calculate arbitrary part size, and cap it if necessary
+  # - resulting size is rounded up to align to 0x20 bytes, if necessary
+
+  mr. r3, rOut
+  bt+ bIsAddr, _load_file
+  # load the file if rOut is already an address (checked from sign bit)
+
+    cmpwi r3, 5
+    bge- _load_file
+    # If the positive value overflows the ID index, assume it's an ARAM address instead
+
+      _read_alloc:
+      # ... otherwise, it's a memory region ID that we need to try to create an alloc from
+      #  0 : dynamic -- safest choice, but always expires at scene end
+      #  3 : persistent pre-load cache -- for data intended for use later on in the game
+      #  4 : semi-persistent pre-load cache -- for an upcoming scene change
+
+      mr r4, rSize
+      bl 0x80015bd0
+      # This high level HSD allocator has access to both dynamic and cached data regions
+
+
+      cmpwi rArch, 2
+      mr rOut, r3
+      subi rMeta, r3, 0x20
+      blt+ _load_file
+        mr rMeta, r3
+        # region IDs 2 ... 5 have special 'cache' metadata structures
+        # - these can be linked to archive pre-loader objects to manage async loads with events
+
+
+        lwz rOut, CacheMeta.xAlloc(rMeta)
+        # This can be used to correct the address pointer in rOut when returning Cache regions
+
+    _load_file:
+    mr. r5, rOut
+    li r7, 0x23
+    bf+ bIsAddr, 0f; li r7, 0x21; 0:
+    # r5 is the output destination for the DVD load to sync with
+    # r7 is a bit code representing the type of RAM the DVD hardware should load data into
+    # - we check the sign bit of r5 (load destination, output) to see what kind of address is used
+
+    mr r9, rSyncCB
+    # r9 is a callback to be executed once the DVD hardware has synced with SRAM, for the CPU to use
+    # - if this is null, no callback is made
+    # - 'sync' loads normally use this to set a flag that breaks a wait loop
+
+    cmpwi r9, -1
+    bne- 0f
+      data.start
+        li r0, 1
+        stw r0, 0(r4)
+        blr
+        1: .long 0
+      data.end r9
+      addi rSyncArg, r9, 1b-_data.start
+      li r0, 0
+      stw r0, 0(rSyncArg)
+      # setup syncarg to use tha above flag variable
+      # - the callback will set it to true once load is successful
+
+    0:
+
+
+    mr r3, rNum   # r3 = entrynum of target file
+    mr r4, rStart # r4 = starting file offset to load from
+    mr r6, rSize  # r6 = number of bytes to load
+    li r8, 1      # r8 = unknown index, using 1 is normal though
+    mr r10, rSyncArg  # r10 is given to the sync callback, if/when executed
+    # - the argument may be something useful, like a data pointer
+
+    bl 0x8038f6d4
+    # Low level backend for DVD event queue management
+    # - after calling this, a DVD load will be queued for asynchronous reading
+    #   - this read begins immediately if nothing else is currently queued
+    #   - the CPU may continue on after the read begins, but can't reach the data until it is synced
+
+    _sync:
+    # at this point, the DVD hardware is off doing its own thing asynchronous to the CPU...
+    # - we're now deciding whether or not we should wait for it to finish before continuing...
+
+    cmpwi rSyncCB, -1
+    bne+ _check_archive
+    # If the provided rSyncCB callback is special code '-1', then we will wait for DVD...
+
+      li rAsync, 0
+      0:
+        lwz r0, 0(rSyncArg)
+        cmpwi r0, 1
+        beq- _check_archive
+          bl 0x800195d0
+          b 0b
+
+    _check_archive:
+    cmpwi rArch, -1
+    beq- _return
+    # If not using archives, then we're finished ...
+
+      _archive_initialize:
+      # ... otherwise, we need to initialize the archive object with the archive we just loaded
+
+      mr r3, rArch
+      mr r4, rOut
+      li r5, 0
+      bl <arch.init>
+      # This initializer will invoke the functions normally used to init an archive object on load
+
+
+_return:
+cmpwi rNum, 0
+stmw rNum, 0(rArgs)
+crmove bInvalid, lt
+cmpwi rAsync, 0
+lswi r3, rArgs, 8<<2
+crnot bAsync, eq
+# bInvalid and bAsync are returned in cr1
+
+epilog
+blr

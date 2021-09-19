@@ -173,6 +173,7 @@ mem.info.rMem         = r4
 mem.info.rHeap        = r5
 mem.info.rCache       = r6
 mem.info.rStart       = r7
+mem.info.rAlloc       = r7
 mem.info.rSize        = r8
 mem.info.rOffset      = r9
 mem.info.rMeta        = r10
