@@ -16,6 +16,36 @@ log.nl  # Print a null message to give appearence of newline
 
 log.timestamp  # returns details about current frame/time
 returns: rScene, rRel, rBoot, rID, rTrans, rMajor, rMinor, rTBU, rTBL, fScene, fRel, fBoot
+# takes no args, and returns the following identifying timestamp data:
+# --- Retrns:
+# f1 = Scene frame
+#    - integer index counter -- not a real timer
+#      - index counts up once before the GProc, GXDraw steps in a scene frame execute
+#      - updated as part of the HSD Performance stat routine implemented in the scene loop
+# f2 = Relative frame
+#    - using HSD Performance stat timestamps
+#      - f2 is the real time relative to the start of the counted frame in f1
+#      - very accurate -- should maintain precision of 20-nanosecond increments
+# f3 = Boot frame
+#    - using OS boot timestamp to create a sample runtime frame timestamp
+
+# r3 = Scene frame
+# r4 = Relative frame (in microframes)
+#    + FFF00000 = full frames
+#    + 000FFFFF = microframes
+#    - microframes count in-between frames, relative to the performance monitor timestamps
+#    - full frames will be <1 unless something is causing the scene frame ticks to stall:
+#      - >1 when the GProc or GXDraw step of a scene takes too long
+#      - >1 when the CPU is stalling while waiting for hardware to sync
+# r5 = Boot frame
+
+# r6 = compressed ID: [r7, r8, r9]
+#    - r6 is convenient for implementing into timestamp messages if individual IDs are not needed
+# r7 = Scene Transition Count
+# r8 = Major Scene ID
+# r9 = Minor Scene ID
+# r10, r11 = raw TBU, TBL
+#          - r10, r11 make a timestamp counting from epoch in jan 2000 -- unnormalized
 
 [Punkline]
 # --- generic tools:
@@ -107,7 +137,7 @@ xHSD_PerfStat = -0x3FA8
 
 fScene=1; fRel=2; fBoot=3
 rScene=3; rRel=4; rBoot=5; rID=6; rTrans=7; rMajor=8; rMinor=9; rTBU=10; rTBL=11
-fTicks=1; fFloor=2; fCeil=3; rCeil=6; rOS=7; rGlobals=8
+fTicks=1; fFloor=2; fCeil=31; rCeil=6; rOS=7; rGlobals=8
 xBoot=0xC; xRel=0x10
 
 0: mftbu rTBU
@@ -118,8 +148,9 @@ bne- 0b
 # get timestamp, correcting for unlikely (but possible) 85-second mark error
 
 mflr r0
-stwu sp, -0x20(sp)
-stw  r0,  0x20+4(sp)
+stwu sp, -0x30(sp)
+stw  r0,  0x30+4(sp)
+stfd f31, 0x20(sp)
 # callsafe prolog
 
 lis  rOS, OSGlobals@h
@@ -128,27 +159,18 @@ lis r0, Frac@h
 srwi rCeil, rCeil, 2
 ori r0, r0, Frac@l # fixed point fraction
 mulhwu r3, r0, rCeil # high multiply, to apply fixed point fraction
-li r4, 5
+li r4, -5
 bl <fixed_u32.float>
 # all casting functions called here have a minimal impact on volatile registers
 # - only r0, r3, r4, f0, f1 are affected
 
-fmr fCeil, fTicks
-fsubs fFloor, fCeil, fCeil
-# fCeil represents a total number of ticks per 'frame', according to BUS speed
-# fFloor = 0.0
-# - this formats a call/return register pipeline for the <norm> instruction that we can re-use
-
-# <norm> is like a safe division operation that provides a reciprocal and optional floor
-#   - f1 = in/out;  f2 and f3 stay the same as a ceiling/floor for sequential division ops
-
+fmr fCeil, f1
 lwz  r3, xBoot_time+0(rOS)
 lwz  r4, xBoot_time+4(rOS)
 subfc r4, r4, rTBL
 subfe r3, r3, rTBU
 bl <s64.float>
-lfs f0, -0x7FD8(rtoc)
-fdiv f1, f1, f0
+fdiv f1, f1, fCeil
 # boot ticks have been sampled, casted, and normalized into a percentage in f1
 
 stfs f1, xBoot(sp)
@@ -163,8 +185,7 @@ beq- 0f
   subfc r4, r4, rTBL
   subfe r3, r3, rTBU
   bl <s64.float>
-  lfs f0, -0x7FD8(rtoc)
-  fdiv f1, f1, f0
+  fdiv f1, f1, fCeil
   # Performance stat sample is used to create relative timestamp base
   # - if not available (before first frame of the first scene), then use boot time instead
 
@@ -196,7 +217,8 @@ rlwimi rID, rMinor, 0, 0xFF
 # Scene transition ID has been compiled
 
 _return:
-lwz  r0,  0x20+4(sp)
-addi sp, sp, 0x20
+lfd f31, 0x20(sp)
+lwz  r0,  0x30+4(sp)
+addi sp, sp, 0x30
 mtlr r0
 blr
