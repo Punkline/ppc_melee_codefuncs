@@ -1,0 +1,747 @@
+-==-
+!
+ASM - PRIM LITE 1.1
+Primitive Drawing Module: LITE
+rtoc - 0x2194 = 804DD84C = <prim.new>
+rtoc - 0x2198 = 804DD848 = <prim.close>
+rtoc - 0x2180 = 804DD860 = sword trail GX options
+See ( https://smashboards.com/threads/primitive-drawing-module.454232/ ) for more info.
+[Punkline]
+1.02 ----- 0x802EAA38 --- C822DE80 -> C82280A0
+1.02 ----- 0x802E8D68 --- C862DE80 -> C86280A0
+1.02 ----- 0x804DD860 --- 4330000080000000 -> 0010130300001455
+# mytoc block 328, 804DD860, -0x2180(rtoc), -0x217C(rtoc)
+# = default sword trail GX params
+
+# 00101303  00001455 = default values:
+
+# C0000000  00000000 = Cull Mode
+#  +8 = cull backface
+#  +4 = cull frontface
+
+# 03FF0000  00000000 = Line Width/Point Size
+#   1/16 pixel increments; 0x2A8 maximum width
+# -- does not apply to sword trails
+
+# 00002000  00000000 = Compare Location
+#  +1 = z buffer compares before texturing
+
+# 00001000  00000000 = Z Buffer Compare
+#  +1 = z buffer enables compare
+
+# 00000800  00000000 = Z Buffer Update
+#  +1 = z buffer enables update
+
+# 00000700  00000000 = Z Buffer Comparison Logic
+#  +4 = greater than
+#  +2 = equal to
+#  +1 = less than
+
+# 000000FF  00000000 = Primitive Type
+#   0 = quads
+#   1 = --
+#   2 = triangles
+#   3 = trianglestrip
+#   4 = trianglefan
+#   5 = lines
+#   6 = linestrip
+#   7 = points
+
+# 00000000  00003000 = Blend Type
+#   0 = None
+#   1 = Blend -- blend using blending equation
+#   2 = Logic -- blend using bitwise operation
+#   3 = Subtract -- input subtracts from existing pixel
+
+# 00000000  00000700 = Blend Source
+#   0 = zero -- 0.0
+#   1 = one  -- 1.0
+#   2 = source color
+#   3 = inverted source color
+#   4 = source alpha
+#   5 = inverted source alpha
+#   6 = destination alpha
+#   7 = inverted destination alpha
+
+# 00000000  00000070 = Blend Dest
+#   (see above)
+
+# 00000000  0000000F = Blend Logic
+#   0 -- CLEAR;   dst = 0
+#   1 -- AND;     dst = src & dst
+#   2 -- REVAND;  dst = src & ~dst
+#   3 -- COPY;    dst = src
+#   4 -- INVAND;  dst = ~src & dst
+#   5 -- NOOP;    dst = dst
+#   6 -- XOR;     dst = src ^ dst
+#   7 -- OR;      dst = src | dst
+#   8 -- NOR;     dst = ~(src | dst)
+#   9 -- EQUIV;   dst = ~(src ^ dst)
+#   A -- INV;     dst = ~dst
+#   B -- REVOR;   dst = src | ~dst
+#   C -- INVCOPY; dst = ~src
+#   D -- INVOR;   dst = ~src | dst
+#   E -- NAND;    dst = ~(src & dst)
+#   F -- SET;     dst = 1
+
+1.02 ----- 0x800c2684 ----
+38600001 38800004 38a00005 38c00005
+->
+57E3A7BE 57E4C77E 57E5E77E 57E6073E
+1.02 ----- 0x800c26b0 ----
+38600001 38800003 38A00000
+->
+57C3A7FE 57C4C77E 57C5AFFE
+1.02 ----- 0x800c26c0 --- 38600000 -> 57C39FFE
+1.02 ----- 0x800c272c --- 38600000 -> 57C317BE
+# these overwrites convert loaded immediates into rlwinms
+# -- this allows the primitives to be drawn somewhat parametrically with prim.new
+# -- injections allow for 2 static functions to be written, for gecko code support
+
+<prim.setup> 1.02
+# r3 = params 1 = C WWW ZZ PP  (W is unused here)
+# r4 = params 2 = ---- BBBB
+# r30 and r31 are safe to use for projection duration
+mflr r0
+stw  r0, 0x4(sp)
+stwu sp, -0x4000(sp)
+stmw r30, 0x10(sp)
+
+mr r30, r3  # Static overwrite strings will create rlwinms that extract from r30 and r31.
+mr r31, r4  # These will replace some hardcoded arguments made for GX function calls
+
+li r3, 1    # original instruction; arg for GXSetColorUpdate
+b 0x800c2678
+
+
+<prim.setup2> 1.02
+mflr r0
+stw  r0, 0x4(sp)
+stwu sp, -0x4000(sp)
+bl 0x8033C3C8    # GXClearVtxDesc -- original instruction
+b 0x800c2d40
+
+<projection_return> 1.02
+addi  sp, sp, 0x4000
+lwz  r0, 0x4(sp)
+mtlr r0
+blr
+
+1.02 ----- 0x800c2da0 --- 38b80001 -> b <projection_return>
+# projection end <prim.setup2>
+
+
+1.02 ----- 0x800c2674 --- 38600001 -> b <prim.setup_projection>
+<prim.setup_projection> 1.02
+# -- projection start for <prim.setup>
+# External prolog fabricates an interface for the
+# purpose of creating parameters in the setup process:
+#    r3       r4
+# C0000000 00000000 = r3 for GXSetCullMode
+# 03FF0000 00000000 =  (line width, or point size)
+# 00002000 00000000 = r3 for GXSetCompLoc
+# 00001000 00000000 = r3 for GXSetZMode
+# 00000800 00000000 = r5 for GXSetZMode
+# 00000700 00000000 = r4 for GXSetZMode
+# 000000FF 00000000 =  (primitive type)
+# 00000000 00003000 = r3 for GXSetBlendMode
+# 00000000 00000700 = r4 for GXSetBlendMode
+# 00000000 00000070 = r5 for GXSetBlendMode
+# 00000000 0000000F = r6 for GXSetBlendMode
+
+# 00101303 00001455 = defaults
+
+# each param is parsed by an rlwinm (see static overwrites)
+# (line width and primite type are not parsed here)
+
+lwz r3, -0x2180(rtoc)
+lwz r4, -0x217C(rtoc)
+# load sword trail parameters for natural trail drawing
+# modifying these params will change the way sword trails are drawn
+
+bl <prim.setup>
+lbz r0, 0x2101 (r28) # repair INJ2 hook instruction externally
+b 0x800c2738
+
+1.02 ----- 0x800c2734 --- 881c2101 -> b <prim.setup_projection_epilog>
+<prim.setup_projection_epilog> 1.02
+# lbz r0, 0x2101 (r28)
+lmw r30, 0x10(sp)
+b <projection_return>
+
+
+1.02 ----- 0x800c2d3c --- 4827968d -> b <prim.setup2_projection>
+<prim.setup2_projection> 1.02
+bl <prim.setup2>
+addi r5, r24, 1
+b 0x800c2da4
+
+
+1.02 ----- 0x802E8B48 --- C822DE68 -> C82280A0
+# Mytoc Block_327 -0x2198(rtoc)
+
+1.02 ----- 0x804DD848 --- 43300000 -> b <prim.close>
+<prim.close> 1.02
+# rtoc - 0x2198 (804DD848)
+li r3, -1
+b 0x80361fc4
+
+1.02 ----- 0x804DD84C --- 80000000 -> b <prim.new>
+<prim.new> 1.02
+# rtoc - 0x2194 (804DD84C)
+
+# r3 = vert count
+#    r4        r5
+# C0000000  00000000 = Cull Mode
+#  +8 = cull backface
+#  +4 = cull frontface
+
+# 03FF0000  00000000 = Line Width/Point Size
+#   1/16 pixel increments; 0x2A8 maximum width
+
+# 00002000  00000000 = Compare Location
+#  +1 = z buffer compares before texturing
+
+# 00001000  00000000 = Z Buffer Compare
+#  +1 = z buffer enables compare
+
+# 00000800  00000000 = Z Buffer Update
+#  +1 = z buffer enables update
+
+# 00000700  00000000 = Z Buffer Comparison Logic
+#  +4 = greater than
+#  +2 = equal to
+#  +1 = less than
+
+# 000000FF  00000000 = Primitive Type
+#   0 = quads
+#   1 = --
+#   2 = triangles
+#   3 = trianglestrip
+#   4 = trianglefan
+#   5 = lines
+#   6 = linestrip
+#   7 = points
+
+# 00000000  00003000 = Blend Type
+#   0 = None
+#   1 = Blend -- blend using blending equation
+#   2 = Logic -- blend using bitwise operation
+#   3 = Subtract -- input subtracts from existing pixel
+
+# 00000000  00000700 = Blend Source
+#   0 = zero -- 0.0
+#   1 = one  -- 1.0
+#   2 = source color
+#   3 = inverted source color
+#   4 = source alpha
+#   5 = inverted source alpha
+#   6 = destination alpha
+#   7 = inverted destination alpha
+
+# 00000000  00000070 = Blend Dest
+#   (see above)
+
+# 00000000  0000000F = Blend Logic
+#   0 -- CLEAR;   dst = 0
+#   1 -- AND;     dst = src & dst
+#   2 -- REVAND;  dst = src & ~dst
+#   3 -- COPY;    dst = src
+#   4 -- INVAND;  dst = ~src & dst
+#   5 -- NOOP;    dst = dst
+#   6 -- XOR;     dst = src ^ dst
+#   7 -- OR;      dst = src | dst
+#   8 -- NOR;     dst = ~(src | dst)
+#   9 -- EQUIV;   dst = ~(src ^ dst)
+#   A -- INV;     dst = ~dst
+#   B -- REVOR;   dst = src | ~dst
+#   C -- INVCOPY; dst = ~src
+#   D -- INVOR;   dst = ~src | dst
+#   E -- NAND;    dst = ~(src & dst)
+#   F -- SET;     dst = 1
+
+mflr r0
+stw  r0, 0x4(sp)
+stwu sp, -0x40(sp)
+stmw r29, 0x10(sp)
+
+mr r30, r3 # save r3 and r4 for after projection calls
+mr r31, r4 #
+mr r3,  r4 # r3 = params 1
+mr r4,  r5 # r4 = params 2
+
+bl <prim.setup>     # set up params
+bl <prim.setup2> # set up mtx
+
+rlwinm r3, r31, 0, 0xFF  # r3 = primitive ID
+cmpwi  r3, 5             # if it's larger than
+blt+ _end_width_handle
+  cmpwi  r3, 7
+  bgt- _end_width_handle
+    rlwinm r3, r31, 16, 0x03FF
+    li     r4, 5
+    beq- _point_handle
+
+    _width_handle: # exclusively for lines and linestrips
+    bl 0x8033D240
+    b _end_width_handle
+
+    _point_handle: # exclusively for points
+    bl 0x8033d298
+
+_end_width_handle:
+
+rlwinm  r3, r31, 3, 0x000000F8
+addi   r3, r3, 0x80  # r3 is now a primitive ID that can be fed to GXBegin
+li     r4, 0         # use vtx format 0
+rlwinm r5, r30, 0, 0xFFFF # use N number of vertices
+bl 0x8033D0DC
+
+lis  r3, 0xCC01
+addi r3, r3, -0x8000 # r3 = address of hardware FIFO stack
+# write vertex(X, Y, Z, C) to address in r3
+# each write must be to the exact same address
+
+lmw  r29, 0x10(sp)
+addi sp, sp, 0x40
+lwz  r0, 0x4(sp)
+mtlr r0
+blr
+
+
+
+-==-
+
+Primitive Drawing Module
+(Standalone Version)
+
+Draw points, lines, triangles, and quads with <prim.new>
+
+# r3 = vert count
+#    r4        r5
+# C0000000  00000000 = Cull Mode
+#  +8 = cull backface
+#  +4 = cull frontface
+
+# 03FF0000  00000000 = Line Width/Point Size
+#   1/16 pixel increments; 0x2A8 maximum width
+
+# 00002000  00000000 = Compare Location
+#  +1 = z buffer compares before texturing
+
+# 00001000  00000000 = Z Buffer Compare
+#  +1 = z buffer enables compare
+
+# 00000800  00000000 = Z Buffer Update
+#  +1 = z buffer enables update
+
+# 00000700  00000000 = Z Buffer Comparison Logic
+#  +4 = greater than
+#  +2 = equal to
+#  +1 = less than
+
+# 000000FF  00000000 = Primitive Type
+#   0 = quads
+#   1 = --
+#   2 = triangles
+#   3 = trianglestrip
+#   4 = trianglefan
+#   5 = lines
+#   6 = linestrip
+#   7 = points
+
+# 00000000  00003000 = Blend Type
+#   0 = None
+#   1 = Blend -- blend using blending equation
+#   2 = Logic -- blend using bitwise operation
+#   3 = Subtract -- input subtracts from existing pixel
+
+# 00000000  00000700 = Blend Source
+#   0 = zero -- 0.0
+#   1 = one  -- 1.0
+#   2 = source color
+#   3 = inverted source color
+#   4 = source alpha
+#   5 = inverted source alpha
+#   6 = destination alpha
+#   7 = inverted destination alpha
+
+# 00000000  00000070 = Blend Dest
+#   (see above)
+
+# 00000000  0000000F = Blend Logic
+#   0 -- CLEAR;   dst = 0
+#   1 -- AND;     dst = src & dst
+#   2 -- REVAND;  dst = src & ~dst
+#   3 -- COPY;    dst = src
+#   4 -- INVAND;  dst = ~src & dst
+#   5 -- NOOP;    dst = dst
+#   6 -- XOR;     dst = src ^ dst
+#   7 -- OR;      dst = src | dst
+#   8 -- NOR;     dst = ~(src | dst)
+#   9 -- EQUIV;   dst = ~(src ^ dst)
+#   A -- INV;     dst = ~dst
+#   B -- REVOR;   dst = src | ~dst
+#   C -- INVCOPY; dst = ~src
+#   D -- INVOR;   dst = ~src | dst
+#   E -- NAND;    dst = ~(src & dst)
+#   F -- SET;     dst = 1
+
+<prim.close> NTSC 1.02
+# Close the current set of drawing params
+li r3, -1
+b 0x80361fc4
+
+
+
+<prim.new> NTSC 1.02
+# Start buffering a stream of vertex information for drawing to GX
+# - must be called for each new primitive
+#   - multiple primitives can be drawn without using .close
+# - must finish last primitive with .close to safely restore gx context
+
+#  r3 = vert count
+#     - if 0, then no polygon is drawn -- but params are remembered
+#     - if negative, number is negated to become positive -- then used with memorized params
+#  r4 and r5 create a 64-bit Args field that contains multiple arguments as small ints
+#  r6, r7, r8, and r9 may optionally contain additional args specified by options in r4, r5
+
+.include "punkpc.s"
+punkpc sp, small, data
+
+# --- GAS objects           rParamH   rParamL - (from r4, r5)
+mCullMode = 0xC0000000  # + C0000000 00000000
+mNoColor  = 0x20000000  # + 20000000 00000000
+mAlphaBuf = 0x10000000  # + 10000000 00000000
+mLineSize = 0x0FFF0000  # + 0FFF0000 00000000
+mZCompLoc = 0x00002000  # + 00002000 00000000
+mZCompare = 0x00001000  # + 00001000 00000000
+mZBuffer  = 0x00000800  # + 00000800 00000000
+mZLogic   = 0x00000700  # + 00000700 00000000
+mCIndexed = 0x00000080  # + 00000080 00000000 +rCIBase (from r6)
+mCIndex16 = 0x00000040  # + 00000040 00000000
+mPIndexed = 0x00000020  # + 00000020 00000000 +rPIBase (from r7)
+mPIndex16 = 0x00000010  # + 00000010 00000000
+mIRecache = 0x00000008  # + 00000008 00000000
+mPrimType = 0x00000007  # + 00000007 00000000
+mFixPoint = 0xFF000000  # + 00000000 FF000000
+mOtherMTX = 0x00800000  # + 00000000 00800000 +rMTX    (from r8)
+mOneColor = 0x00400000  # + 00000000 00400000 +rColor  (from r9)
+mNoZCoord = 0x00200000  # + 00000000 00200000
+mNoAChan  = 0x00100000  # + 00000000 00100000
+mRGBType  = 0x00070000  # + 00000000 00070000
+mBMode    = 0x00003000  # + 00000000 00003000
+mBMSource = 0x00000700  # + 00000000 00000700
+mBMDest   = 0x00000070  # + 00000000 00000070
+mBMLogic  = 0x0000000F  # + 00000000 0000000F
+
+# mCullMode
+# +C0000000  00000000 = Cull Mode
+#  +8 = cull backface
+#  +4 = cull frontface
+
+# mNoColor
+# +20000000  00000000 = Disable Color buffer Update
+#  false = allow colors
+#  true  = disable updates to the color buffer with this polygon
+#  - logic is inverted for this syntax to preserve backwards compatibility with older versions
+
+# mAlphaBuf
+# +10000000  00000000 = Alpha buffer Update
+#  false = skip
+#  true  = enable updates to the alpha buffer with this polygon
+
+# mLineSize
+# +0FFF0000  00000000 = Line Width/Point Size
+#  n = 1/16 native pixel increments
+
+# mZCompLoc
+# +00002000  00000000 = Z Compare Location
+#  false = z buffer compares after texturing (slower, handles alpha correctly for textures)
+#  true  = z buffer compares before texturing (faster, may cause issues for textures)
+
+# mZCompare
+# +00001000  00000000 = Z Buffer Compare
+#  false = z buffer is ignored by this polygon
+#  true  = z buffer enables compare
+
+# mZBuffer
+# +00000800  00000000 = Z Buffer Update
+#  false = z buffer is unchanged by this polygon
+#  true  = z buffer enables update
+
+# mZLogic
+# +00000700  00000000 = Z Buffer Comparison Logic
+#  +4 = greater than
+#  +2 = equal to
+#  +1 = less than
+
+# mCIndexed
+# +00000080  00000000 = Set Indexed Colors (from r6)
+#  false = r6 is ignored; colors are input with the vertex directly from gx fifo
+#  true  = r6 specifies the base of an array of vertex colors
+#  - inidexed colors are fed to GX using an ID instead of an actual color
+
+# mCIndex16
+# +00000040  00000000 = Indexed Colors are 16-bit
+#  false = Color IDs are bytes
+#  true  = Color IDs are hwords
+#  - ID 0xFF or 0xFFFF are IDs are treated like nulls, and are skipped
+
+# mPIndexed
+# +00000020  00000000 = Set Indexed Position Coords (from r7)
+#  false = position coordinates are input with the vertex directly from fifo
+#  true  = r7 specifies the base of an array of vertex position coordinates
+#  - indexed positions are fed to GX using an ID instead of an actual set of coordinates
+
+# mPIndex16
+# +00000010  00000000 = Indexed Position Coords are 16-bit
+#  false = Position IDs are bytes
+#  true  = Position IDs are hwords
+#  - ID 0xFF or 0xFFFF are IDs are treated like nulls, and are skipped
+
+# +00000008  00000000 = Indexed Data needs re-cache
+#  false = read-only vertex data is read without the need for flushing and waiting for ppcsync
+#  true  = flushes DC at array regions to prevent incoherence between CPU and GPU cache
+#  - only required for indexed variables -- GPU can't read pending I/O from the CPU outside of fifo
+
+# +00000007  00000000 = Primitive Type
+#  0 = quads
+#  1 = --
+#  2 = triangles
+#  3 = trianglestrip
+#  4 = trianglefan
+#  5 = lines
+#  6 = linestrip
+#  7 = points
+
+# +00000000  FF000000 = Use Fixed Points for Position Input
+#  +80 = enable fixed points (small integer data type with a fractional mantissa)
+#  +40 = use 16-bit integers instead of 8-bit integers (includes mantissa)
+#  +20 = use signed integers instead of unsigned integers
+#  +1F = mantissa bit size (abstract; can be larger than actual bit size)
+
+# +00000000  00800000 = Use Custom MTX (input in r8)
+# false = use current CObj mtx
+# true  = interpret r8 as either a CObj, a JObj, or a MTX
+
+# +00000000  00400000 = Use Constant Color (input in r9)
+# false = r9 is ignored; colors are read for each individual vertex
+# true  = r9 specifies a color to use for all vertices in this polygon
+
+# +00000000  00200000 = Omit Z coord in Position input
+#  false = XYZ are read as part of input position coordinates
+#  true  = only XY are read as part of input coordinates
+
+# +00000000  00100000 = Omit Alpha channel in Color input
+#  false = input color includes an alpha channel
+#  true  = input color does not have an alpha channel
+
+# +00000000  00070000 = Color Data Format
+#  0 = RGB565  (16-bit) compressed RGB
+#  1 = RGB8    (24-bit) Full RGB
+#  2 = RGBX8   (32-bit) Full RGB aligned for RGBA
+#  3 = RGBA4   (16-bit) very compressed RGBA
+#  4 = RGBA6   (24-bit) compressed RGBA
+#  5 = RGBA8   (32-bit) Full RGBA
+
+# +00000000  00003000 = Blend Type
+#  0 = None
+#  1 = Blend -- blend using blending equation
+#  2 = Logic -- blend using bitwise operation
+#  3 = Subtract -- input subtracts from existing pixel
+
+# +00000000  00000700 = Blend Source (TEV+Fog)
+#  0 = zero -- 0.0
+#  1 = one  -- 1.0
+#  2 = source color
+#  3 = inverted source color
+#  4 = source alpha
+#  5 = inverted source alpha
+#  6 = destination alpha
+#  7 = inverted destination alpha
+
+# +00000000  00000070 = Blend Dest (Environmental Frame Buffer)
+#  0 = zero -- 0.0
+#  1 = one  -- 1.0
+#  2 = source color
+#  3 = inverted source color
+#  4 = source alpha
+#  5 = inverted source alpha
+#  6 = destination alpha
+#  7 = inverted destination alpha
+
+# +00000000  0000000F = Blend Logic
+#  0 -- CLEAR;   dst = 0
+#  1 -- AND;     dst = src & dst
+#  2 -- REVAND;  dst = src & ~dst
+#  3 -- COPY;    dst = src
+#  4 -- INVAND;  dst = ~src & dst
+#  5 -- NOOP;    dst = dst
+#  6 -- XOR;     dst = src ^ dst
+#  7 -- OR;      dst = src | dst
+#  8 -- NOR;     dst = ~(src | dst)
+#  9 -- EQUIV;   dst = ~(src ^ dst)
+#  A -- INV;     dst = ~dst
+#  B -- REVOR;   dst = src | ~dst
+#  C -- INVCOPY; dst = ~src
+#  D -- INVOR;   dst = ~src | dst
+#  E -- NAND;    dst = ~(src & dst)
+#  F -- SET;     dst = 1
+
+
+
+
+prolog rData, rVert, rParamH, rParamL, rCIBase, rPIBase, rMtx, rColor,
+  mr rVert, r3     # vert count
+  mr rParamsH, r4  # params
+  mr rParamsL, r5  # params
+  mr rCIBase, r6   # color index pointer (optional)
+  mr rPIBase, r7   # polygon index pointer (optional)
+  mr rMtx, r8      # Mtx pointer (optional)
+  mr rColor, r9    # single color (optional)
+  data.get rData
+
+  li r3, 1
+  bl <GX.setColorUpdate>
+
+
+
+-==-
+
+GX Functions
+
+[GX]
+<GX.setColorUpdate> NTSC 1.02
+# enable/disable writing results to Environmental Frame color/alpha Buffers
+# --- args:
+# r3 = GXBool   update_enable
+b 0x80340d40
+
+<GX.setAlphaUpdate> NTSC 1.02
+# enable/disable writing results to Environmental Frame alpha Buffers
+# --- args:
+# r3 = GXBool   update_enable
+b 0x80340d80
+
+<GX.setBlendMode> NTSC 1.02
+# Determines how the pixel color combines with the Environmental Frame Buffer
+# - the pixel color is the "Source" color (from TEV stages like this + Fog)
+# - the EFB is the "Destination" color
+# --- args:
+# r3 = GXBlendMode   type
+# r4 = GXBlendFactor src_factor
+# r5 = GXBlendFactor dst_factor
+# r6 = GXLogicOp     op
+b 0x80340c3c
+
+<GX.setAlphaCompare> NTSC 1.02
+# Resulting comparison is applied to the alpha of the last TEV stage
+# --- args:
+# r3 = GXCompare     comp0
+# r4 = byte          ref0
+# r5 = GXAlphaOp     op
+# r6 = GXCompare     comp1
+# r7 = byte          ref1
+b 0x8034051c
+
+<GX.setZMode> NTSC 1.02
+# Controls how the Z buffer is updated
+# --- args:
+# r3 = GXBool        compare_enable
+# r4 = GXCompare     func
+# r5 = GXBool        update_enable
+b 0x80340dc0
+
+<GX.setZCompLoc> NTSC 1.02
+# Controls when Z comparison is made -- before or after texturing
+# - before is faster, but may cause alpha texturing blending issues
+# --- args:
+# r3 = GXBool        before_tex
+b 0x80340e38
+
+<GX.setNumTexGens> NTSC 1.02
+# For texture coords
+# --- args:
+# r3 = byte  nTexGens
+b 0x8033cb78
+
+<GX.setNumTevStages> NTSC 1.02
+# Sets the number of TEV Stages for this drawing
+# - each TEV stage independently controls the color and alpha components in the TEV hardware
+# --- args:
+# r3 = byte  nStages
+b 0x80340790
+
+<GX.setTevOrder> NTSC 1.02
+# Assigns a texture coord (tile ID), texture map (texture), and a color ID to a TEV stage
+# - 0xFF is a null input
+# --- args:
+# r3 = GXTevStageID  stage
+# r4 = GXTevCoordID  coord
+# r5 = GXTexMapID    map
+# r6 = GXChannelID   color
+b 0x803405f0
+
+<GX.setTevOp> NTSC 1.02
+# A shortcut for calling GXSetTevColorIn, GXSetTevAlphaIn, GXSetTevColorOp, and GXSetTevAlphaOp
+# - modes: GX_MODULATE, GX_DECAL, GX_BLEND, GX_REPLACE
+# --- args:
+# r3 = GXTevStageID  id
+# r4 = GXTevMode     mode
+b 0x8033fdc4
+
+<GX.setNumChans> NTSC 1.02
+# Set number of colors
+# --- args:
+# r3 = byte         nChans
+b 0x8033e55c
+
+<GX.setChanCtrl> NTSC 1.02
+# - if disabled, material color is unmodified on rasterization
+# - if enabled, material color is transformed by lights enabled in light_mask
+# - if enabled, attn_fn and diff_fn can be used to control the angle and diffusion of attenuation
+# - if mat_src, material color comes from the vertex color instead of the material register
+# --- args:
+# r3 = GXChannelID  chan
+# r4 = GXBool       enable
+# r5 = GXColorSrc   amb_src
+# r6 = GXColorSrc   mat_src
+# r7 = GXLigtID     light_mask
+# r8 = GXDiffuseFn  diff_fn
+# r9 = GXAttnFn     attn_fn
+b 0x8033e5a8
+
+<GX.setCullMode> NTSC 1.02
+# Control whether front and/or back facing triangles should be drawn
+# --- args:
+# r3 = GXCullMode   mode
+b 0x8033d350
+
+
+<GX.clearVtxDesc> NTSC 1.02
+# Clears the current vertex attribute format so that new attributes can be defined
+b 0x8033C3C8
+
+<GX.setVtxAttrFmt> NTSC 1.02
+# Set attribute format
+# r3 = GXVtxFmt    vtxfmt  (0...7)
+# r4 = GXAttr      attr    (GX_VA_POS = 9)
+# r5 = GXCompCnt   cnt     (GX_POS_XYZ = 1)
+# r6 = GXCompType  type    (GX_F32 = 4)
+# r7 = byte        frac    (fixed point mantissa bit size)
+# EX:
+# - attr = 9 (GX_VA_POS)
+# - cnt: XY, XYZ
+# - type: U8, S8, U16, S16, F32
+#   - integer types can use frac param to set a mantissa bit size
+
+# - attr = 11 (GX_VA_CLR0)
+# - cnt: RGB, RGBA
+# - type: RGB565, RGB8, RGBX8, RGBA4, RGBA6, RGBA8
+b 0x8033C414
+
+<GX.invalidateParams> NTSC 1.02
+# --- args:
+# r3 = unk (use -1)
+b 0x80361fc4
