@@ -101,6 +101,18 @@ GX.setVtxAttrFmt  --  Set attribute format
 # - cnt: RGB, RGBA
 # - type: RGB565, RGB8, RGBX8, RGBA4, RGBA6, RGBA8
 
+GX.setVtxDesc -- Set the type of a single attribute in the current vertex descriptor
+# r3 = GXAttr       attr  (GX_VA_COLOR0)
+# r4 = GXVTXAttrIn  type  (GX_INDEX16)
+# - type: NONE, INDEX8, INDEX16, DIRECT
+
+GX.loadPosMtxImm -- Load a 3x4 modelview matrix into memory at location `pnidx`
+# r3 = GXMtx3x4  mtx    (address)
+# r4 = GXPNIdx   pnidx  (GX_PNMTX0)
+
+GX.setCurrentMtx -- Selects a specific matrix from PNMTX slots to use for transformations
+# r3 = GXPNIdx   pnidx  (GX_PNMTX0)
+
 GX.invalidateParams  --
 # --- args:
 # r3 = unk (use -1)
@@ -140,3 +152,9 @@ b 0x8033C3C8
 b 0x8033C414
 <GX.invalidateParams> NTSC 1.02
 b 0x80361fc4
+<GX.setVtxDesc> NTSC 1.02
+b 0x8033bf00
+<GX.loadPosMtxImm> NTSC 1.02
+b 0x80341494
+<GX.setCurrentMtx> NTSC 1.02
+b 0x80341510
