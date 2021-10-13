@@ -59,7 +59,7 @@ GX.setTevOp  --  A shortcut for calling GXSetTevColorIn, GXSetTevAlphaIn, GXSetT
 # r3 = GXTevStageID  id
 # r4 = GXTevMode     mode
 
-GX.setNumChans  --  Set number of colors
+GX.setNumChans  --  Set number of colors (for light?)
 # --- args:
 # r3 = byte         nChans
 
@@ -113,6 +113,22 @@ GX.loadPosMtxImm -- Load a 3x4 modelview matrix into memory at location `pnidx`
 GX.setCurrentMtx -- Selects a specific matrix from PNMTX slots to use for transformations
 # r3 = GXPNIdx   pnidx  (GX_PNMTX0)
 
+GX.begin -- Start input stream for describing vertices
+# r3 =
+
+GX.setAmbColor -- Set Ambient color, for light
+# r3 = color channel ID
+# r4 = color (address of RGBA)
+
+GX.setMatColor -- set Material color, for tev stages
+# r3 = color channel ID
+# r4 = color (address of RGBA)
+
+GX.setArray -- Set an array of indexed attributes, for vertex inputs
+# r3 = attribute ID
+# r4 = attribute array (RAM address)
+# r5 = stride (number of bytes per attribute)
+
 GX.invalidateParams  --
 # --- args:
 # r3 = unk (use -1)
@@ -158,3 +174,15 @@ b 0x8033bf00
 b 0x80341494
 <GX.setCurrentMtx> NTSC 1.02
 b 0x80341510
+<GX.begin> NTSC 1.02
+b 0x8033d0dc
+<GX.setAmbColor> NTSC 1.02
+b 0x8033e28c
+<GX.setMatColor> NTSC 1.02
+b 0x8033e3f4
+<GX.setArray> NTSC 1.02
+b 0x8033c80c
+<GX.setLineWidth> NTSC 1.02
+b 0x8033D240
+<GX.setPointSize> NTSC 1.02
+b 0x8033d298
