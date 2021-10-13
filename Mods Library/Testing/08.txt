@@ -1,0 +1,641 @@
+-==-
+
+ASM - Simple Stage Geometry 2.0
+Draws stage collision links in place of stage
+- can be toggled from status flag in <simple_stage_geometry_params>
+- includes primitive drawing module
+[Punkline]
+
+
+<simple_stage_geometry_params> All
+.long 0xe5e5e5ff  # 0 - normal stage floor color
+.long 0x635c66ff  # 1 - ceiling color
+.long 0x635c66ff  # 2 - right wall color
+.long 0x635c66ff  # 3 - left wall color
+.long 0x00ffe5ff  # 4 - ice floor color
+.long 0xf02040ff  # 5 - ledge floor color
+.long 0x26211360  # 6 - intangible color
+.long 0x408040C0  # 7 - polygon region
+.long 0xA08040C0  # 8 - fallthrough floor color
+
+# 0x24
+.byte 0x10 # line width (in 1/16th pixels)
+
+# 0x25
+# flags:
+.set enable,      0x01 # toggle the whole code on/off
+.set showDrawing, 0x02 # toggle geometry drawing
+.set showWorld,   0x04 # toggle world GObj displays
+.set showBG,      0x08 # toggle background color changes
+
+.set PolyRegions, 0x10 # toggle stage polygon region boxes when drawing
+.set IgnoreZ,     0x11 # use this to draw geometry in front of everything else
+
+.byte enable | showDrawing
+# set flags by name using '|' to combine
+# default = "enable | showDrawing"
+# these can be modified in-game
+
+.byte 0
+# memory variable for flags byte
+# this byte copies over the flags byte on each drawing to create a trigger mask
+# when the memory does not match the flags byte, camera settings are modified to reflect options
+# -- the code does not otherwise passively update the camera settings
+
+.align 2
+
+
+1.02 ------ 800301f0 --- 387b0000 -> Branch
+# just before stage camera GX function starts
+# deciding if going to draw stage models using flag
+
+# injection attempts to introduce toggle logic while minimally intruding on vanilla mechanics
+# uses memory bits to only operate when changes in flags are detected
+
+# registers:
+.set rFlags,    8
+.set rMemory,   9
+.set rTrigger, 10
+.set rParams,  12
+.set rFrame,   11
+.set rCam,     28
+
+# offsets:
+.set xFlags,  0x25
+.set xMemory, 0x26
+
+# cr bools:
+.set bEnable,    31
+.set bNOOP,      30
+.set bShowWorld, 29
+.set bShowBG,    28
+.set bETrig,     27  # "enable" trigger
+.set bWTrig,     25  # "world" trigger
+.set bBTrig,     24  # "background" trigger
+
+lis r0, <<simple_stage_geometry_params>>@h
+ori rParams, r0, <<simple_stage_geometry_params>>@l
+lis r11, 0x8048
+lwz rFrame, 0x9D60-0x10000(r11)
+cmpwi rFrame, 1
+# r12 = params
+# r11 = scene timer
+# cr0 eq = initialization bool, TRUE if 1st frame of scene
+
+lbz rFlags, xFlags(rParams)
+lbz rMemory, xMemory(rParams)
+# rFlags = parameters
+# rMemory = parameters from last check
+
+mr  r0, rFlags
+xor rTrigger, rFlags, rMemory
+bne+ _finish_bools
+# differences between rFlags and rMemory are generated in rTrigger
+
+  _initial_frame_trigger:
+  li rTrigger, 0xFF
+  # if this is the first frame of the scene, then force the trigger mask
+  # -- otherwise, only changes to the bools will cause code to trigger
+
+_finish_bools:
+rlwimi r0, rTrigger, 4, 0xF0
+mtcrf 0x03, r0
+# cr7 = flag params
+# cr6 = trigger bools
+
+
+
+
+crnor bNOOP, bEnable, bETrig
+# if ((not enabled) AND (not enabletrigger))
+# -- then NOOP
+
+cror 0, bWTrig, bBTrig
+cror 0, 0, bETrig
+crorc bNOOP, bNOOP, 0
+# or if not (any trigger)
+# -- then NOOP
+
+bt+ bNOOP, _return
+# HA-HA I'M USING LOGIC
+
+stb rFlags, xMemory(rParams)
+
+_setup_hide_world:
+lwz r3, 0x398(rCam)
+oris r3, r3, 0x2000
+# r3 = ORed flag will cause stage model to disappear
+
+bf- bEnable, _setup_show_world
+# if disabled, but ~bNOOP, then we need show the stage
+
+bf+ bShowWorld, _setup_hide_bg
+# if not showing world, then use ORed flag to inhibit drawing
+
+  _setup_show_world:
+  xoris r3, r3, 0x2000
+  # r3 = OR -> XORed flag = absolute false
+
+_setup_hide_bg:
+oris r3, r3, 0x0400
+bf- bEnable, _setup_show_bg
+bf+ bShowBG, _set_cam_options
+
+  _setup_show_bg:
+  xoris r3, r3, 0x0400
+
+_set_cam_options:
+stw r3, 0x398(rCam)
+# store resulting flag mask
+
+_return:
+addi    r3, r27, 0
+.long 0
+
+
+1.02 ------ 800304c8 --- 48338141 -> Branch
+lis r0, <<simple_stage_geometry_params>>@h
+ori r3, r0, <<simple_stage_geometry_params>>@l
+bl <draw_simple_stage_geometry>
+bl    0x80368608  # HSD_CObjEndCurrent
+.long 0
+
+
+<draw_simple_stage_geometry> 1.02
+# r3 = colors and parameters
+
+# registers:
+.set rThis,   31  # current polygon
+.set rLinks,  30  # base of link array
+.set rVerts,  29  # base of vert array
+.set rColors, 28  # base of custom colors array, and parameters
+.set rCount,  27  # counter for facing groups loop
+.set rRoot,   26  # address of current root link parameters for (facing groups)
+.set rLink,   25  # current link, from links
+.set rDesc,   24  # current link description, from link
+.set rPrim1,  23
+.set rPrim2,  22
+
+.set rGX,    3
+.set rColor, 4
+
+# float registers:
+.set fPolyMin, 4
+.set fPolyMax, 5
+
+# global r13 offsets:
+.set xFirstActivePoly,  -0x51DC
+.set xBaseOfLinksArray, -0x51E4
+.set xBaseOfVertsArray, -0x51E8
+
+# global rtoc offsets:
+.set xZero, -0x7FBC
+
+# color offsets:
+.set xGroundColor,   0x00
+.set xCeilColor,     0x04
+.set xRightColor,    0x08
+.set xLeftColor,     0x0C
+.set xIceColor,      0x10
+.set xLedgeColor,    0x14
+.set xIntanColor,    0x18
+.set xRegionColor,   0x1C
+.set xFallthruColor, 0x20
+
+# parameter offsets:
+.set xLineWidth, 0x24
+.set xFlags,     0x25
+.set xMemory,    0x26
+
+# polygon offsets
+.set xPlyNext,  0x0
+.set xPlyLinks, 0x4
+.set xPlyFlags, 0x8
+.set xPlyMin,   0x10
+.set xPlyMax,   0x18
+
+# polygon info offsets:
+.set xRootLink,  0x0
+.set xLinkCount, 0x2
+
+# collision link offsets:
+.set xLinkDesc,  0x0
+.set xLinkClip,  0x4
+.set xLinkBools, 0x6
+
+# collision link description offsets:
+.set xVert1, 0x0
+.set xVert2, 0x2
+.set xDescBools, 0xC
+.set xDescMat,   0xF
+
+# vertex offsets:
+.set xCurrentXY, 0x8
+
+# stack offsets:
+.set xStackSize, 0x100
+.set xQR7,       0x80
+.set xGXsaved,   0x84
+.set xAlphaPair, 0x88
+
+# bools:
+.set bEnable,      23
+.set bShowDrawing, 22
+.set bPolyRegions, 19
+.set bIgnoreZ,     18
+.set bLeft,  28
+.set bRight, 29
+.set bCeil,  30
+.set bFloor, 31
+.set bVertPass, 31
+
+# masks:
+.set mIntangible, 4
+.set mFloor,       0x0001
+.set mFallthrough, 0x0100
+.set mLedge,       0x0200
+.set mOmniFall,    0x0400
+
+# Stage Collision Link Info (in File)
+# -0x51EC(r13) - 804D64B4 = point to section of file
+#
+# 0x00  point  to Collision Link Vertex Array (in File)
+# 0x04  word   Vertex Array size
+# 0x08  point  to Collision Link Array (in File)
+# 0x0C  word   Link Array Size
+
+
+# Instantiated Collision Link Vertex
+# -0x51E8(r13) - 804D64B8 - point to base of array
+# (0x18 byte alignment)
+#
+# 0x00  float  Initial X position
+# 0x04  float  Initial Y position
+# 0x08  float  Current X position # can be poked live
+# 0x0C  float  Current Y position
+# 0x10  float  Previous X position
+# 0x14  float  Previous Y position
+
+
+# Instantiated Collision Link
+# -0x51E4(r13) - 804D64BC = point to base of array
+# (0x8 byte alignment)
+#
+# 0x0  point  to Collision Link (in File)
+# 0x4  flags  short:
+# 0x4  (0001) = collision link floor is active, and can be landed on
+# 0x4  (0004) = temporarily disabled
+# 0x6  flags  short:
+# 0x6  (0001) = Link is a floor
+# 0x6  (0002) = Link is a ceiling
+# 0x6  (0004) = Link is a right wall
+# 0x6  (0008) = Link is a left wall
+# 0x6  (0010) = Link is omnidirectional (?)
+# 0x6  (0100) = seems to be related to updating facing type for omnidirectional links
+
+# this index appears to be ordered by facing type: floor, ceiling, right, left, omni
+
+
+# Collision Link desc (in File)
+# pointed to by instantiated links (0x0)
+# (0x10 byte alignment)
+#
+# 0x0  short  Vertex ID 1  (these can be used to navigate vert array)
+# 0x2  short  Vertex ID 2
+# 0x4  short  Next Link ID (these can be used to navigate link array)
+# 0x6  short  Prev Link ID
+# 0x8  short  unk ID (these are usually FFFF for null)
+# 0xA  short  unk ID
+# 0xC  flags  short:
+# 0xC  (0001) = enable collisions
+# 0xC  (0004) = temporarily disable collisions?
+#
+# 0xE  flags  byte:
+# 0xE  (01)   = Platform can be fallen through by holding down
+# 0xE  (02)   = Link edge(s) may be used as a grabbable ledge
+# 0xE  (04)   = Omnidirectional fallthrough platforms
+# 0xF  byte   Material ID for link (causes SFX and Physics changes)
+
+
+# Instantiated Collision Polygon
+# -0x51E0(r13) - 804D64C0 = Base of array
+# -0x51DC(r13) - 804D64C4 - First Active Stage Polygon
+# -0x51D8(r13) - 804D64C8 - Last Active Stage Polygon
+# (0x34 byte alignment)
+#
+# 0x00  point  Next Active Polygon
+# 0x04  point  Polygon Link Info (in File)
+#
+# 0x08  flags  short:
+# 0x08  (0001) enable polygon collisions  # these appear to globally set contained link flags
+# 0x08  (0004) temporarily disable polygon collisions?
+# 0x0A  flags  short:
+# 0x0A  (0100) enable polygon?  # unknown
+# 0x0A  (0200) animated polygon?  # see brinstar depths
+# 0x0C  short  unknown counter, sometimes doesn't increment
+# 0x0E  short  unknown flags, or unused padding
+#
+# 0x10  float  unknown X value  # these are related to attached joint in 0x20
+# 0x14  float  unknown Y value  # possibly min/max?
+# 0x18  float  unknown X2 value
+# 0x1C  float  unknown Y2 value
+#
+# 0x20  point  Polygon Joint (JObj)
+# 0x24  point  ECB Callback Function (runs once for every player standing on this polygon)
+# 0x28  point  Stage GObj Data table (if GObj exists)
+# 0x2C  point? unknown
+# 0x30  point? these were null in all of my observations
+
+# ---
+#
+# Polygon Link Info (in File)
+# pointed to by Instantiated Collision Polygon (0x4)
+# 0x00  short  Root Link ID  # floors
+# 0x02  short  number of links
+#
+# 0x00  short  Root Link ID  # ceilings
+# 0x02  short  number of links
+#
+# 0x00  short  Root Link ID   # right walls
+# 0x02  short  number of links
+#
+# 0x00  short  Root Link ID  # left walls
+# 0x02  short  number of links
+#
+# 0x00  short  Root Link ID  # omnidirectional
+# 0x02  short  number of links
+
+
+
+mflr r0
+stw  r0, 0x4(sp)
+stwu sp, -xStackSize(sp)
+stmw r22, 0x10(sp)
+# tons of stack and register room
+
+mr rColors, r3
+lhz r3, xFlags(rColors)
+mtcrf 0x0C, r3
+# load bools
+
+bf- bEnable, _return
+bf- bShowDrawing, _return
+# if not enabled, then skip the rest of code
+
+lbz r0, xLineWidth(rColors) # line width
+li rPrim1, 0x1305         # params 1
+li rPrim2, 0x1455         # params 2
+rlwimi rPrim1, r0, 16, 0xFF0000  # insert line width param
+bf+ bIgnoreZ, _finish_setup
+  xori rPrim1, rPrim1, 0x1000
+  # toggle argument bit if ignoring z buffer comparison
+
+_finish_setup:
+lwz rThis,  xFirstActivePoly(r13)
+lwz rLinks, xBaseOfLinksArray(r13)
+lwz rVerts, xBaseOfVertsArray(r13)
+# rColors = index of user-specified RGBA colors
+# rPoly = first active polygon
+# rLinks = base of link array, 0x8 byte aligned
+# rVerts = base of vert array, 0x18 byte aligned
+
+bf- bPolyRegions, _setup_for_each_polygon2
+lbz r0, xRegionColor+3(rColors)
+cmpwi r0, 0
+beq- _setup_for_each_polygon2
+# if color alpha is 0 for region color, or flag is flase; then skip first pass
+
+_for_each_polygon1:
+  lhz r3, xPlyFlags(rThis)
+  andi. r0, r3, mIntangible
+  bne- _iter_polygons1
+
+  li r3, 5              # vert count
+  mr r4, rPrim1
+  mr r5, rPrim2
+  addi r4, r4, 1 # lines -> linestrip
+  bl <prim.new>
+  # r3 = GX pipe
+
+  lwz rColor, xRegionColor(rColors)
+  psq_l fPolyMin, xPlyMin(rThis),0,0
+  lfs f3, -0x7FBC(rtoc)
+  psq_l fPolyMax, xPlyMax(rThis),0,0
+  ps_merge00 f1, fPolyMin, fPolyMin
+  ps_merge11 f2, fPolyMin, fPolyMin
+  bl <store_vert>
+  ps_merge11 f2, fPolyMax, fPolyMax
+  bl <store_vert>
+  ps_merge00 f1, fPolyMax, fPolyMax
+  bl <store_vert>
+  ps_merge11 f2, fPolyMin, fPolyMin
+  bl <store_vert>
+  ps_merge00 f1, fPolyMin, fPolyMin
+  bl <store_vert>
+  # unknown box region envelopes polygon shape
+  # drawn using given poly region color
+
+  _iter_polygons1:
+  lwz rThis, xPlyNext(rThis)
+  cmpwi rThis, 0
+  blt+ _for_each_polygon1
+
+
+# first pass complete -- only poly regions have been (optionally) drawn
+# now begin second pass, which is the actual geometry
+
+
+_setup_for_each_polygon2:
+lwz rThis, xFirstActivePoly(r13)
+# we'll be going through each polygon again to draw contained links
+# each polygon has up to 5 groups of links that represent possible facing orientations
+# these reach into an array sorted by facing type
+
+_for_each_polygon2:
+  li rCount, 5
+  lwz rRoot, xPlyLinks(rThis)
+  # ready for facing groups loop
+
+  _for_each_facing_group:
+    lhz r0, xLinkCount(rRoot)
+    slwi. r3, r0, 1
+    beq+ _iter_facing_group_loop
+    # ready to draw lines, unless number of lines = 0
+
+      _if_group_contains_links:
+      mr r4, rPrim1
+      mr r5, rPrim2
+      bl <prim.new>
+      stw rGX, xGXsaved(sp)
+      # stored GX Pipe hardware address in stack
+
+      lhz r5, xRootLink(rRoot)
+      addi r0, r5, -1
+      slwi r5, r0, 3
+      # r5 = index  for base of lwzu loop
+
+      add rLink, rLinks, r5
+      lhz r0, xLinkCount(rRoot)
+      mtctr r0
+      # ready for drawing loop
+
+        _for_each_link_in_group:
+          lwzu rDesc, 0x8(rLink)
+          lhz  r0, xLinkBools(rLink)
+          mtcrf 0b00000001, r0
+          # bools loaded into volatile cr7
+          # rLinks address updated
+
+          bf+ bFloor, _check_for_ceiling
+          # if this link is not a floor, check for ceiling type
+          # else handle as a floor:
+
+            _floor:
+            _check_slipperyness:
+            lbz r3, xDescMat(rDesc)
+            # r3 = this link's material ID
+
+            bl 0x800569ec  # $!_get_material_friction
+            # returns f1 = material friction
+
+            lwz rColor, xGroundColor(rColors)
+            mr r10, rColor
+            # default color for floor links
+            # copy it to r10 for a later check
+
+            psq_l f0, 0(sp),1,0  # generates 1.0
+            ps_cmpo1 cr1, f1, f0
+            bge+ cr1, _check_ledge
+              lwz rColor, xIceColor(rColors)
+              # if friction < 1.0, color with Ice color
+              # save comparison for later in cr1
+
+            _check_ledge:
+            lwz r3, xDescBools(rDesc)
+            rlwinm. r0, r3, 0, mLedge
+            beq+ _check_if_intangible
+              lwz rColor, xLedgeColor(rColors)
+              b _check_if_intangible
+              # if ledge, then prioritize displaying ledge color
+            # all floor conditions have been checked for
+
+          _check_for_ceiling:
+          bf+ bCeil, _check_for_wall
+            lwz rColor, xCeilColor(rColors)
+            b _check_if_intangible
+            # set ceiling color
+
+          _check_for_wall:
+          bf+ bLeft, _right_wall
+            lwz rColor, xLeftColor(rColors)
+            b _check_if_intangible
+            # set wall left color
+
+          _right_wall:
+          lwz rColor, xRightColor(rColors)
+          # else, set wall right color
+
+          _check_if_intangible:
+          lhz r3, xLinkClip(rLink)
+          andi. r0, r3, mIntangible
+          beq+ _draw_this_link
+            lwz rColor, xIntanColor(rColors)
+            # if link is intangible, then draw as intangible color
+
+          _draw_this_link:
+          lwz rGX, xGXsaved(sp)
+          crclr bVertPass
+          addi r12, rDesc, -2
+          lfs f3, xZero(rtoc)
+          mr r11, rColor
+          # ready for vertex pair
+          # r11 and r12 will be used for loop
+
+          _for_each_vertex_in_link:
+            lhzu r5, 0x2(r12)
+            mulli r6, r5, 0x18
+            addi r5, r6, xCurrentXY
+            psq_lx f1, rVerts, r5,0,0
+            ps_merge11 f2, f1, f1
+            # f1, f2, f3 = X, Y, Z
+            # r3 = GX
+            # r4 = color
+
+
+            _check_fallthrough_flag:
+            lwz r0, xDescBools(rDesc)
+            andi. r5, r0, mFallthrough | mOmniFall
+            beq _commit_to_vertex
+            # if not a fallthrough platform, draw at full alpha
+
+              lhz r5, xLinkBools(rLink)
+              andi. r6, r5, mFloor
+              bne- _check_fallthrough_color
+                lwz rColor, xIntanColor(rColors)
+                b _commit_to_vertex
+                # if fallthrough and not floor (because of omni)
+                # then set color to intangible
+
+              _check_fallthrough_color:
+              # at this point, we know it's a fallthrough platform
+              # but we want to prioritize any assigned colors besides default ground
+
+              cmpw r10, rColor
+              lwz r0, xFallthruColor(rColors)
+              mullw r0, rColor, r0
+              rlwimi rColor, r0, 24, 0xFF
+              # crudely combine existing RGBA with the alpha of fallthrough color
+              # -- this may cause the alpha to be very low if both colors are transparent
+
+              bne- _commit_to_vertex
+                lwz rColor, xFallthruColor(rColors)
+                # if this is just a regular fallthrough platform, give it a unique color
+
+            _commit_to_vertex:
+            bl <store_vert>
+            bt- bVertPass, _iter_link_loop
+            # vertex has been written to GX pipe
+            # if this is only the first vertex pass, then continue vertex loop
+            # else, exit and continue link loop
+
+              crnot bVertPass, bVertPass
+              b _for_each_vertex_in_link
+              # invert bVertPass bool so that this only iterates once before terminating
+
+          _iter_link_loop:
+          bdnz+ _for_each_link_in_group
+          # exhaust ctr to finish writing all promised link vertices to GX
+
+    _iter_facing_group_loop:
+    subic. rCount, rCount, 1
+    addi rRoot, rRoot, 4
+    bgt+ _for_each_facing_group
+    # iterate to next ECB facing group, if decremented count is not 0
+
+  _iter_polygons2:
+  lwz rThis, xPlyNext(rThis)
+  cmpwi rThis, 0
+  blt+ _for_each_polygon2
+  # terminate if next polygon is inactive
+
+_end_drawing:
+bl <prim.close>
+
+_return:
+lmw r22, 0x10(sp)
+addi sp, sp, xStackSize
+lwz r0, 0x4(sp)
+mtlr r0
+blr
+
+
+
+<store_vert>
+# r3 = GX fifo
+# r4 = color
+# f1...f3 = XYZ
+stfs f1, 0(r3)
+stfs f2, 0(r3)
+stfs f3, 0(r3)
+stw  r4, 0(r3)
+blr
