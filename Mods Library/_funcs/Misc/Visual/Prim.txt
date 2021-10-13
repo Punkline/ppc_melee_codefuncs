@@ -371,7 +371,7 @@ prolog rParams, rVerts, rType
     # sample set primitive type if negative is given
 
   0:
-  cmpwi rType, GX_LINES
+  cmpwi rType, (GX_LINES-0x80)>>3
   blt+ 0f
     mr. r3, r5
     bge+ 1f
@@ -379,7 +379,7 @@ prolog rParams, rVerts, rType
       # sample set line size if negative is given
 
     1:
-    cmpwi rType, GX_POINTS
+    cmpwi rType, (GX_POINTS-0x80)>>3
     beq+ 1f
       bl <GX.setPointSize>
       b 0f
