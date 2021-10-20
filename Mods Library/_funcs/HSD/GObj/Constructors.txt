@@ -130,12 +130,12 @@ bf+ bIsBranch, 0f
   # interpret branch address, if needed...
 
 0:
-cmpw cr3, rGProc, r0
-cmpw cr4, rGXDraw, r0
+cmpwi cr3, rGProc, 0
+cmpwi cr4, rGXDraw, 0
 # all bools and params are saved and ready to be evaluated/selectively constructed...
 
 li r3, GDesc.def.Class  # special default custom class ID can be manually overwritten on return
-lbz r4, GDesc.xPlink(rGDesc)
+lbz r4, GDesc.xPLink(rGDesc)
 lbz r5, GDesc.xPPriority(rGDesc)
 bl 0x803901f0  # GObj.new
 mr rGObj, r3
@@ -183,5 +183,3 @@ bf- bHaveGXDraw, 0f
 mr r3, rGObj
 epilog
 blr
-
-
