@@ -1,0 +1,114 @@
+-==-
+
+09 - GDesc/Prim test
+[Punkline]
+Revision ---- DOL Offset ---- Hex to Replace ---------- ASM Code -
+NTSC 1.02 --- 8022e93c ---- b9c10408 -> Branch
+.include "melee"; melee
+data.start
+
+  _GDesc:
+  enum.enum_conc "data.",, (0), +4, xCounter, xC1, xC2, xC3, size
+  # offsets for data variables in live GObj
+
+  GObj.GDesc GProc=_GProc, GXDraw=_GXDraw, Data=data.size, GXLink=7
+  # set up a GObj constructor by plugging into the labels, below
+
+
+  _GProc:
+  prolog rStatic, rGObj, rData
+    mr rGObj, r3
+    lwz rData, GObj.xData(rGObj)
+    data.get rStatic                 # recycle the blrl used in 'data.start'
+    data.get rStatic, _StaticData    # -- and calculate new offset
+    # saved registers are ready
+
+    lwz r3, data.xCounter(rData)
+    addi r3, r3, 1
+    stw r3, data.xCounter(rData)
+    # simple frame counter
+
+    lwz r4, static.xC1(rStatic)
+    slwi r3, r3, 11
+    add r0, r3, r4
+    lwz r4, static.xC2(rStatic)
+    stw r0, data.xC1(rData)      # update this frames color in C1
+    slwi r3, r3, 8
+    add r0, r3, r4
+    lwz r4, static.xC3(rStatic)
+    stw r0, data.xC2(rData)      # update this frames color in C2
+    slwi r3, r3, 8
+    add r0, r3, r4
+    stw r0, data.xC3(rData)      # update this frames color in C3
+    # drawing will use these mutating colors
+  epilog
+  blr
+
+
+
+  _GXDraw:
+  prolog rStatic, rGObj, rData, rPass
+    cmpwi r4, 2
+    bne+ _GXDraw_return
+    # only draw on pass 2
+
+    mr rPass, r4
+    mr rGObj, r3
+    lwz rData, GObj.xData(rGObj)
+    data.get rStatic                 # recycle the blrl used in 'data.start'
+    data.get rStatic, _StaticData    # -- and calculate new offset
+    # saved registers are ready
+
+    bl <prim.set_default>
+    li r3, 3
+    bl <prim.triangles>
+    regs (r3), rGX, rColor, (f0), fZero, fUnit
+    lfs fZero, static.xZero(rStatic)
+    lfs fUnit, static.xUnit(rStatic)
+
+    stfs fZero, 0(rGX)
+    lwz rColor, data.xC1(rData)
+    stfs fZero, 0(rGX)
+    stfs fZero, 0(rGX)
+    stw rColor, 0(rGX)
+    # vert 1
+
+    stfs fUnit, 0(rGX)
+    lwz rColor, data.xC2(rData)
+    stfs fUnit, 0(rGX)
+    stfs fZero, 0(rGX)
+    stw rColor, 0(rGX)
+    # vert 2
+
+    stfs fUnit, 0(rGX)
+    lwz rColor, data.xC3(rData)
+    fneg fUnit, fUnit
+    stfs fUnit, 0(rGX)
+    stfs fZero, 0(rGX)
+    stw rColor, 0(rGX)
+    # vert 3
+
+    bl <prim.close>
+
+  _GXDraw_return:
+  epilog
+  blr
+
+
+  # rStatic:
+  data.table _StaticData
+    0: .long 0x5956D0FF
+    1: .long 0xE9BB18FF
+    2: .long 0x35A754FF
+    3: .float 10
+    4: .float 0
+  align 2
+  data.struct 0, "static.", xC1, xC2, xC3, xUnit, xZero
+
+data.end r3
+bl <GDesc.load>
+
+
+# original instruction, and return from injection:
+lmw	r14, 0x0408 (sp)
+.long 0
