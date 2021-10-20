@@ -1,8 +1,7 @@
 -==-
 
 Primitive Drawing Module
-(Standalone Version)
-
+2.0 -- Standalone Version
 
 
 prim.new -- Start drawing vertices using argument params
@@ -54,6 +53,7 @@ prim.mFixPoint_Frac   = 0x1F
 
 
 prim.close -- stop drawing verts, and invalidate the current params
+# no args
 
 
 prim.set -- prepare to begin drawing by setting params from an input data pointer
@@ -95,6 +95,7 @@ prim.points
 # - use any of these to force the stated primitive type
 # --- returns:
 # r3 = GX FIFO pipe (hardware address for storing vertex data)
+
 
 prim.lines_width
 prim.linestrip_width
@@ -428,7 +429,10 @@ stw r0, 0x0C(r3)
 stw r0, 0x10(r3)
 stw r0, 0x14(r3)
 stw r0, 0x18(r3)
-blr
+beqlr
+li r3, -1
+b <prim.set>
+
 
 <prim.set> NTSC 1.02
 # Set GX params for next draw (without committing to draw)
@@ -463,6 +467,8 @@ prolog rColor, rMtx, rPIBase, rCIBase, rParamsL, rParamsH, rParams, rFixed, rSav
     mr rParams, rMem
     stw r3, prim.xVerts(rParams)
     stswi r4, rParams, 0x18
+    # store args if a non-address is given in r3
+
   0:
 
   lmw rParamsH, 0(rParams)
@@ -530,20 +536,27 @@ prolog rColor, rMtx, rPIBase, rCIBase, rParamsL, rParamsH, rParams, rFixed, rSav
 
   bl <GX.clearVtxDesc>
   rlwinm rFixed, rParamsL, prim.mFixPoint
+  li r3, GX_VTXFMT0
   rlwinm. r0, rFixed, prim.mFixPoint_Enable
   li r6, GX_F32
   li r7, 0
-  li rPStride, 0
+  li rPStride, 4
+  li r4, GX_VA_POS
   beq+ 0f
     rlwinm r6, rFixed, prim.mFixPoint_Type
     li r0, 1
     rlwinm r7, rFixed, prim.mFixPoint_Frac
     slw rPStride, r0, r6
+    # use custom fixed point data type, if flagged
+
   0:
-  li r3, GX_VTXFMT0
-  rlwinm r5, rParamsL, prim.mNoZCoord
-  li r4, GX_VA_POS
-  xori r5, r0, 1
+  rlwinm. r5, rParamsL, prim.mNoZCoord
+  slwi r0, rPStride, 1
+  xori r5, r5, 1
+  beq+ 0f
+    mulli r0, rPStride, 3
+  0:
+  mr rPStride, r0
   # load r3, GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0
   bl <GX.setVtxAttrFmt>  # pos def
 
@@ -590,7 +603,7 @@ prolog rColor, rMtx, rPIBase, rCIBase, rParamsL, rParamsH, rParams, rFixed, rSav
     1:
   0:
   lswi r3, rSaved, 0x8
-  bl <GX.setVtxDesc> # 1
+  bl <GX.setVtxDesc>
 
   rlwinm. r0, rParamsH, prim.mCIndexed
   load r3, GX_VA_COLOR0, GX_DIRECT
@@ -620,7 +633,7 @@ prolog rColor, rMtx, rPIBase, rCIBase, rParamsL, rParamsH, rParams, rFixed, rSav
     1:
   0:
   lswi r3, rSaved, 0x8
-  bl <GX.setVtxDesc> # 1
+  bl <GX.setVtxDesc>
 
 
   rlwinm. r0, rParamsL, prim.mOtherMTX
