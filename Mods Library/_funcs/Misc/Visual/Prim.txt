@@ -77,11 +77,21 @@ prim.xMtx     = 0x10  # - optional: prim.mOtherMTX
 prim.xColor   = 0x14  # - optional: prim.mOneColor
 # - this syntax variation does not alter the default vert count
 
+
+prim.reset_mem -- reset memory of last settings to defaults
+# no args
+
+
+prim.set_default -- reset memory and use them to set params
+# no args
+
+
 prim.start -- commit to begin drawing from set params
 # --- args:
 # r3 = number of verts
 # --- returns:
 # r3 = GX FIFO pipe (hardware address for storing vertex data)
+
 
 prim.quads -- alternatives to prim.start
 prim.triangles
@@ -417,6 +427,16 @@ blr
 
 <prim.reset_mem> NTSC 1.02
 # Reset params memory to default values
+li r3, 0
+b <prim.__reset_mem>
+
+<prim.set_default> NTSC 1.02
+# Reset params to defaults, and then set them
+li r3, 1
+b <prim.__reset_mem>
+
+<prim.__reset_mem> NTSC 1.02
+cmpwi r3, 0
 lis r3, <<prim.__set_memory>>@h
 ori r3, r3, <<prim.__set_memory>>@l
 lwz r0, 0x1C(r3)
