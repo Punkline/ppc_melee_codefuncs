@@ -5,17 +5,18 @@ melee.module prim
 .if module.included == 0
 melee GX
 
+r13.xOrthoCObj = -0x4880
 
-prim.xParamsH = 0x00  # --- required
-prim.xParamsL = 0x04  # --- required
-prim.xCIBase  = 0x08  # - optional: prim.mCIndexed
-prim.xPIBase  = 0x0C  # - optional: prim.mPIndexed
-prim.xMtx     = 0x10  # - optional: prim.mOtherMTX
-prim.xColor   = 0x14  # - optional: prim.mOneColor
-prim.xVerts   = 0x18  # - record from prev input
-prim.xDefault = 0x1C  # - static desc, for reverting to default
+prim.xParamsH  = 0x00  # --- required
+prim.xParamsL  = 0x04  # --- required
+prim.xCIBase   = 0x08  # - optional: prim.mCIndexed
+prim.xPIBase   = 0x0C  # - optional: prim.mPIndexed
+prim.xMtx      = 0x10  # - optional: prim.mOtherMTX
+prim.xColor    = 0x14  # - optional: prim.mOneColor
+prim.xVerts    = 0x18  # - record from prev input
+prim.xDefault  = 0x1C  # - static desc, for reverting to default
 
-# --- symbols                    rParamH   rParamL - (from r4, r5)
+# --- symbols                    rParamsH rParamsL - (from r4, r5)
 prim.mCullMode = 0xC0000000  # + C0000000 00000000
 prim.mNoColor  = 0x20000000  # + 20000000 00000000
 prim.mAlphaBuf = 0x10000000  # + 10000000 00000000

@@ -392,14 +392,26 @@ prolog rParams, rVerts, rType
     1:
     cmpwi rType, (GX_POINTS-0x80)>>3
     beq+ 1f
-      bl <GX.setPointSize>
+      bl <GX.setLineWidth>
       b 0f
 
     1:
-    bl <GX.setLineWidth>
+    bl <GX.setPointSize>
     # line/point width has been set, if using lines or points
 
   0:
+  #lwz r0, prim.xParamsL(rParams)
+  #rlwinm. r0, r0, prim.mOneColor
+  #beq+ 0f
+  #  #addi r3, rParams, prim.xColor
+  #  #bl 0x80058acc
+  #  addi r4, rParams, prim.xColor
+  #  li r3, 0
+  #  #bl 0x8033ff68
+  #  bl 0x803401ec
+  #0:
+  # apply color, if using only 1 color
+
   rlwinm r3, rType, 3, 0x7<<3
   li r4, 0
   addi r3, r3, 0x80
@@ -421,7 +433,7 @@ blr
 <prim.__set_memory> NTSC 1.02
 # This is static memory reserved for storing the last used draw settings
 00101303 00001455                    # 0x00 : Params memory
-00000000 00000000 00000000 00000000  # 0x08 : Option arg memory
+00000000 00000000 00000000 FF0000FF  # 0x08 : Option arg memory
 00000000                             # 0x18 : Vert count memory
 00101303 00001455                    # 0x1C : Default params
 
@@ -475,19 +487,19 @@ b <prim.set>
 .include "melee"; melee
 prolog rColor, rMtx, rPIBase, rCIBase, rParamsL, rParamsH, rParams, rFixed, rSaved, rCStride, rPStride, rMem, cr, +0x20, xSaved
 
-  cmpwi cr1, r3, -1
-  mr. rParams, r3
+  cmpwi r3, -1
+  mr rParams, r3
   addi rSaved, sp, sp.xSaved
-  crandc cr0.lt, cr0.lt, cr1.eq
   lis r20, <<prim.__set_memory>>@h
   ori r20, r20, <<prim.__set_memory>>@l
   # rMem = r20
 
   blt- 0f
     mr rParams, rMem
-    stw r3, prim.xVerts(rParams)
-    stswi r4, rParams, 0x18
-    # store args if a non-address is given in r3
+    beq- 0f
+      stw r3, prim.xVerts(rParams)
+      stswi r4, rParams, 0x18
+      # store args if a non-address is given in r3
 
   0:
 
@@ -540,12 +552,7 @@ prolog rColor, rMtx, rPIBase, rCIBase, rParamsL, rParamsH, rParams, rFixed, rSav
   # - these might be more customizable in a later version
   #   - you may override these defaults by using <prim.set> followed by addendums
 
-  rlwinm. r0, rParamsL, prim.mOneColor
-  beq+ 0f
-    li r3, 1
-    addi r4, rParams, prim.xColor
-    bl <GX.setMatColor>
-  0:
+
 
   load r3, GX_COLOR0A0, GX_FALSE, 0, 1, GX_LIGHTNULL, GX_DF_NONE, GX_AF_NONE
   bl <GX.setChanCtrl>
@@ -573,15 +580,17 @@ prolog rColor, rMtx, rPIBase, rCIBase, rParamsL, rParamsH, rParams, rFixed, rSav
   rlwinm. r5, rParamsL, prim.mNoZCoord
   slwi r0, rPStride, 1
   xori r5, r5, 1
-  beq+ 0f
+  bne+ 0f
     mulli r0, rPStride, 3
   0:
   mr rPStride, r0
   # load r3, GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0
   bl <GX.setVtxAttrFmt>  # pos def
 
-  rlwinm. r0, rParamsL, prim.mRGBComp
+  #rlwinm. r0, rParamsL, prim.mOneColor
   load r3, GX_VTXFMT0, GX_VA_COLOR0
+  #bne- 0f
+  rlwinm. r0, rParamsL, prim.mRGBComp
   rlwinm r0, rParamsL, prim.mNoAChan
   load r6, GX_RGBA8, 0
   xori r5, r0, 1
@@ -608,12 +617,13 @@ prolog rColor, rMtx, rPIBase, rCIBase, rParamsL, rParamsH, rParams, rFixed, rSav
     mr. r3, rPIBase
     bge- 1f
       rlwinm. r0, rParamsH, prim.mIRecache
+      subi r0, r4, 1            # 1 = 8bit; 2 = 16bit
+      slwi r4, r0, 3            # 8 = 8bit; 16 = 16bit
+      li r0, 1
+      slw r4, r0, r4            # 0x100 = 8bit; 0x10000 = 16bit
+      mullw rPStride, rPStride, r4    # *= stride == data flush size
+      mr r4, rPStride
       beq+ 2f
-        subi r0, r4, 1            # 1 = 8bit; 2 = 16bit
-        slwi r4, r0, 3            # 8 = 8bit; 16 = 16bit
-        li r0, 1
-        slw r4, r0, r4            # 0x100 = 8bit; 0x10000 = 16bit
-        mullw r4, rPStride, r4    # *= stride == data flush size
         bl <data.flush_DC>        # data is now safe for GPU to recache
       2:
       li r3, GX_VA_POS
@@ -625,8 +635,18 @@ prolog rColor, rMtx, rPIBase, rCIBase, rParamsL, rParamsH, rParams, rFixed, rSav
   lswi r3, rSaved, 0x8
   bl <GX.setVtxDesc>
 
+  rlwinm. r0, rParamsL, prim.mOneColor
+  li r4, GX_DIRECT
+  beq- 1f
+    li r3, GX_VA_COLOR0
+    addi r4, rMem, prim.xColor
+    mr r5, rCStride
+    bl <GX.setArray>
+    li r4, GX_NONE
+    b 0f
+  1:
+  li r3, GX_VA_COLOR0
   rlwinm. r0, rParamsH, prim.mCIndexed
-  load r3, GX_VA_COLOR0, GX_DIRECT
   stswi r3, rSaved, 0x8
   beq+ 0f
     li r4, GX_INDEX8
@@ -638,12 +658,13 @@ prolog rColor, rMtx, rPIBase, rCIBase, rParamsL, rParamsH, rParams, rFixed, rSav
     mr. r3, rCIBase
     bge- 1f
       rlwinm. r0, rParamsH, prim.mIRecache
+      subi r0, r4, 1            # 1 = 8bit; 2 = 16bit
+      slwi r4, r0, 3            # 8 = 8bit; 16 = 16bit
+      li r0, 1
+      slw r4, r0, r4            # 0x100 = 8bit; 0x10000 = 16bit
+      mullw rCStride, rCStride, r4    # *= stride == data flush size
+      mr r4, rCStride
       beq+ 2f
-        subi r0, r4, 1            # 1 = 8bit; 2 = 16bit
-        slwi r4, r0, 3            # 8 = 8bit; 16 = 16bit
-        li r0, 1
-        slw r4, r0, r4            # 0x100 = 8bit; 0x10000 = 16bit
-        mullw r4, rCStride, r4    # *= stride == data flush size
         bl <data.flush_DC>        # data is now safe for GPU to recache
       2:
       li r3, GX_VA_COLOR0
@@ -654,20 +675,57 @@ prolog rColor, rMtx, rPIBase, rCIBase, rParamsL, rParamsH, rParams, rFixed, rSav
   0:
   lswi r3, rSaved, 0x8
   bl <GX.setVtxDesc>
-
+  3:
 
   rlwinm. r0, rParamsL, prim.mOtherMTX
   mr r3, rMtx
   bne- 0f
-
     bl <CObj.getCurrent>
-    addi r3, r3, 0x54
   0:
+  # if not usin an input MTX, just use the current CObj MTX
+
+  cmpwi r3, -1
+  blt+ 0f
+    beq- 1f
+
+      # if MTX is a positive ID, use it to select a camera...
+      lwz r4, r13.xGXLinks(r13)
+      lwz r4, GXLink.xCameras(r4)
+      2: subic. r3, r3, 1
+        blt+ 3f
+          lwz r0, GObj.xNext(r4)
+          cmpwi r0, 0
+          beq- 3f
+            mr r4, r0
+            b 2b
+            # if a camera isn't available, just use last one found
+
+    1: lwz r3, r13.xOrthoCObj(r13)
+    b 0f
+    # if ID is -1, use developer mode ortho overlay camera
+
+    3:
+    lwz r3, GObj.xObj(r4)
+    # if using a camera GObj, get the CObj pointer in the GObj structure
+
+  0:
+  load r4, HSD.hsd_CObj_info, HSD.hsd_JObj_info
+  lwz r0, HSD.Class.xInfo(r3)
+  cmpw r0, r4
+  bne+ 0f
+    addi r3, r3, CObj.xStart_MTX
+  0: cmpw r0, r5
+  bne+ 0f
+    addi r3, r3, JObj.xStart_MTX
+  0:
+  # if a live JObj or CObj was given, use the MTX in their object properties
+  # - else, assume given struct is a MTX
+
   li r4, 0
   bl <GX.loadPosMtxImm>
   load r3, 0
   bl <GX.setCurrentMtx>
-
+  # cache given MTX values for drawing verts
 
 epilog
 blr
