@@ -423,15 +423,15 @@ _for_each_polygon1:
   psq_l fPolyMax, xPlyMax(rThis),0,0
   ps_merge00 f1, fPolyMin, fPolyMin
   ps_merge11 f2, fPolyMin, fPolyMin
-  bl <store_vert>
+  bl _store_vertex
   ps_merge11 f2, fPolyMax, fPolyMax
-  bl <store_vert>
+  bl _store_vertex
   ps_merge00 f1, fPolyMax, fPolyMax
-  bl <store_vert>
+  bl _store_vertex
   ps_merge11 f2, fPolyMin, fPolyMin
-  bl <store_vert>
+  bl _store_vertex
   ps_merge00 f1, fPolyMin, fPolyMin
-  bl <store_vert>
+  bl _store_vertex
   # unknown box region envelopes polygon shape
   # drawn using given poly region color
 
@@ -592,7 +592,7 @@ _for_each_polygon2:
                 # if this is just a regular fallthrough platform, give it a unique color
 
             _commit_to_vertex:
-            bl <store_vert>
+            bl _store_vertex
             bt- bVertPass, _iter_link_loop
             # vertex has been written to GX pipe
             # if this is only the first vertex pass, then continue vertex loop
@@ -630,7 +630,7 @@ blr
 
 
 
-<store_vert>
+_store_vertex:
 # r3 = GX fifo
 # r4 = color
 # f1...f3 = XYZ

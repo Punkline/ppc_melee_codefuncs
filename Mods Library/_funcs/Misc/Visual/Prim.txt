@@ -392,6 +392,7 @@ prolog rParams, rVerts, rType
     1:
     cmpwi rType, (GX_POINTS-0x80)>>3
     beq+ 1f
+      li r4, 0
       bl <GX.setLineWidth>
       b 0f
 
@@ -621,8 +622,8 @@ prolog rColor, rMtx, rPIBase, rCIBase, rParamsL, rParamsH, rParams, rFixed, rSav
       slwi r4, r0, 3            # 8 = 8bit; 16 = 16bit
       li r0, 1
       slw r4, r0, r4            # 0x100 = 8bit; 0x10000 = 16bit
-      mullw rPStride, rPStride, r4    # *= stride == data flush size
-      mr r4, rPStride
+      mullw r4, rPStride, r4    # *= stride == data flush size
+      #mr r4, rPStride
       beq+ 2f
         bl <data.flush_DC>        # data is now safe for GPU to recache
       2:
@@ -636,16 +637,16 @@ prolog rColor, rMtx, rPIBase, rCIBase, rParamsL, rParamsH, rParams, rFixed, rSav
   bl <GX.setVtxDesc>
 
   rlwinm. r0, rParamsL, prim.mOneColor
+  li r3, GX_VA_COLOR0
   li r4, GX_DIRECT
   beq- 1f
-    li r3, GX_VA_COLOR0
-    addi r4, rMem, prim.xColor
-    mr r5, rCStride
-    bl <GX.setArray>
+    #addi r4, rMem, prim.xColor
+    #mr r5, rCStride
+    #bl <GX.setArray>
     li r4, GX_NONE
     b 0f
   1:
-  li r3, GX_VA_COLOR0
+  #li r3, GX_VA_COLOR0
   rlwinm. r0, rParamsH, prim.mCIndexed
   stswi r3, rSaved, 0x8
   beq+ 0f
@@ -662,8 +663,8 @@ prolog rColor, rMtx, rPIBase, rCIBase, rParamsL, rParamsH, rParams, rFixed, rSav
       slwi r4, r0, 3            # 8 = 8bit; 16 = 16bit
       li r0, 1
       slw r4, r0, r4            # 0x100 = 8bit; 0x10000 = 16bit
-      mullw rCStride, rCStride, r4    # *= stride == data flush size
-      mr r4, rCStride
+      mullw r4, rCStride, r4    # *= stride == data flush size
+      #mr r4, rCStride
       beq+ 2f
         bl <data.flush_DC>        # data is now safe for GPU to recache
       2:

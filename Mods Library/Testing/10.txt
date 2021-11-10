@@ -99,7 +99,7 @@ data.start
     lwz r9, data.xC1(rData)
     bl <prim.set>
     li r3, 3
-    bl <prim.triangles>
+    bl <prim.linestrip>
     regs (r3), rGX, rColor, (f0), fZero, fUnit, (r11), rZero, rUnit
     li rZero, 0
     li rUnit, 10<<1
@@ -108,10 +108,10 @@ data.start
 
     sth rZero, 0(rGX)
     #stfs fZero, 0(rGX)
-    #lwz rColor, data.xC1(rData)
+    lwz rColor, static.xC1(rStatic)
     #stfs fZero, 0(rGX)
     #stfs fZero, 0(rGX)
-    #stw rColor, 0(rGX)
+    sth rColor, 0(rGX)
     # vert 1
 
     stb rUnit, 0(rGX)
@@ -120,7 +120,7 @@ data.start
     #lwz rColor, data.xC2(rData)
     #stfs fUnit, 0(rGX)
     #stfs fZero, 0(rGX)
-    #stw rColor, 0(rGX)
+    sth rColor, 0(rGX)
     # vert 2
 
     stb rZero, 0(rGX)
@@ -130,7 +130,7 @@ data.start
     #fneg fUnit, fUnit
     #stfs fUnit, 0(rGX)
     #stfs fZero, 0(rGX)
-    #stw rColor, 0(rGX)
+    sth rColor, 0(rGX)
     # vert 3
 
     bl <prim.close>
@@ -142,12 +142,12 @@ data.start
 
   # rStatic:
   data.table _StaticData
-    0: .long 0x59560080
+    0: .long 0x0000F800
     1: .long 0xE9BB18FF
     2: .long 0x35A754FF
     3: .float 10
     4: .float 0
-    5: .long 0x00401303, 0x81e01455
+    5: .long 0x00401303, 0x81281455
   align 2
   data.struct 0, "static.", xC1, xC2, xC3, xUnit, xZero, xParams
 
