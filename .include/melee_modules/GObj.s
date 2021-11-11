@@ -12,7 +12,7 @@ GDesc.def.DataType   = 0x7F
 GDesc.def.PLink      = 0x18
 GDesc.def.PPriority  = 0x10
 GDesc.def.SPriority  = 0
-GDesc.def.GXLink     = 0x13
+GDesc.def.GXLink     = 0
 GDesc.def.GXPriority = 0x10
 
 .macro GObj.GDesc/*
