@@ -85,7 +85,10 @@ args: rArchive, rSymbol
 # r9  = Allocation Metadata
 # r10 = path string
 # r11 = 0
-7CA82B78 38A00000 38C0FFFF 38E0FFFF
+mr r8, r5
+li r5, 0
+li r6, -1
+li r7, -1
 b <DVD.__read_handler>
 
 
@@ -99,9 +102,52 @@ b <DVD.__read_handler>
 # --- returns:
 # r3 = address of file section (or 0 if symbol not found)
 # r4 = given query
-7C0802A6 9421FF90 90010074 BFC10060 7C7F1B78 80BF0040 2C050000 7C9E2378 40800014 801F0000 80A50000 7C002800 41A20048 80C3000C 3BE10010 90DF000C 38830020 80030004 909F0020 7CA40214 80030008 5404103A 7CA52214 80030010 54C61838 90BF0028 54001838 7CA62A14 7C050214 901F0030 7FE3FB78 7FC4F378
+
+.include "melee"
+punkpc ppc
+melee arch
+prolog rArch, rQuery, +0x50, xArch
+mr rArch, r3
+lwz r5, arch.xFileStart(rArch)
+cmpwi r5, 0
+mr rQuery, r4
+bge- _fake_archobj
+lwz r0, arch.xFileSize(rArch)
+lwz r5, arch.xFileSize(r5)
+cmpw r0, r5
+beq+ _have_archobj
+# If the archive's copied header file size matches the real header's file size, archobj is verified
+# else, we will create a fake archive in the stack frame to pass on to the symbol function
+
+  _fake_archobj:
+  lwz r6, arch.xNodeCount(r3)
+  addi rArch, sp, sp.xArch
+  stw r6, arch.xNodeCount(rArch)  # count...
+  addi r4, r3, 0x20
+  lwz r0, arch.xDataSize(r3)
+  stw r4, arch.xData(rArch)       # reloc base address...
+  add r5, r4, r0
+  lwz r0, arch.xRelocCount(r3)
+  slwi r4, r0, 2
+  add r5, r5, r4
+  lwz r0, arch.xRefCount(r3)
+  slwi r6, r6, 3
+  stw r5, arch.xNodeTable(rArch) # Symbol link node table...
+  slwi r0, r0, 3
+  add r5, r6, r5
+  add r0, r5, r0
+  stw r0, arch.xSymbolStrings(rArch)  # Symbol string section...
+  # these 4 values are all that's needed to parse for symbols
+
+_have_archobj:
+mr r3, rArch
+mr r4, rQuery
 bl 0x80380358
-7FC4F378 BBC10060 80010074 38210070 7C0803A6 4E800020
+mr r4, rQuery
+epilog
+blr
+
+
 
 <arch.check_init> NTSC 1.02
 # Check if an archive file has already been relocated
@@ -116,7 +162,32 @@ bl 0x80380358
 # cr1.lt = bInitialized -- a relocated pointer was found
 # cr1.gt = bRelocated -- true if bInitiailized OR bNoRelocs
 # cr1.eq = bNoRelocs -- true if no pointers need relocation
-80030008 80830004 2C800000 38A30020 7C052214 38800000 41860014 7C040378 80040000 7C05002E 2C000000 4C803102 4CA62382 4E800020
+
+.include "melee"
+punkpc regs, enum
+melee arch
+regs rStart, rRT, rBase
+enum (cr1.lt), +1, bInitialized, bRelocated, bNoRelocs
+lwz r0, arch.xRelocCount(rStart)
+lwz r4, arch.xDataSize(rStart)
+cmpwi cr1, r0, 0
+addi rBase, rStart, 0x20
+add r0, rBase, r4
+li rRT, 0
+bt- bNoRelocs, 0f
+  mr rRT, r0
+  lwz r0, 0(rRT)
+  lwzx r0, rBase, r0
+  cmpwi r0, 0
+0:
+crandc bInitialized, lt, bNoRelocs  # cr0 lt value is ignored in cases where bNoRelocs is true
+cror bRelocated, bNoRelocs, bInitialized
+blr  # if no relocs are available, then a file doesn't need relocation
+# - this means that bRelocated is true if either bInitialized or bNoRelocs is true
+#   - bInitialized ensures a file is relocated and installed, with evidence from the reloc table
+#   - bRelocated can be used to check if a file symbol is safe to browse, with no evidence of init
+
+
 
 
 <arch.init> NTSC 1.02
@@ -136,18 +207,56 @@ bl 0x80380358
 # r3 = arch.init.event.rParams -- symbol region, for params
 # r4 = arch.init.event.rArch   -- the archive object for this file
 # r5 = arch.init.event.rCB     -- address of callback (self -- for local data)
-7C0802A6 9421FFD0 90010034 7C000026 90010010 BF610014 7CBC2B79 7C9E2378 4180000C
-lis r0, <<arch.dict.init_default_events>>@h
-ori r28, r0, <<arch.dict.init_default_events>>@l
-7C7F1B79 41A0001C 38800044
-bl 0x80015bd0
-2C1F0002 7C7F1B78 41A00008 83E30004 7FC3F378
+
+
+.include "melee"
+punkpc ppc
+melee mem, arch
+prolog rArch, rStart, rSize, rInit, rCB, cr
+mr. rInit, r5
+mr rStart, r4
+blt- 0f
+  lis r0, <<arch.dict.init_default_events>>@h
+  ori r28, r0, <<arch.dict.init_default_events>>@l
+0:
+mr. rArch, r3
+blt+ 0f
+
+  _archive_alloc:
+  li r4, arch.size
+  # r3 = HSD Memory region ID to allocate from ...
+  # r4 = (size of an 'Archive' object in RAM)
+
+  bl 0x80015bd0
+  cmpwi rArch, 2
+  mr rArch, r3
+  blt+ 1f; lwz rArch, CacheMeta.xAlloc(r3); 1:
+  # this is necessary to extrac the start address from preload cache metadata
+
+0:
+mr r3, rStart
 bl <arch.check_init>
-41840020 7FE3FB78 7FC4F378 80BE0000
-bl 0x80016a54
-7F8CE378 7FEBFB78
-bl <arch.event>
-7FE3FB78 BB610014 80010010 7C0FF120 80010034 38210030 7C0803A6 4E800020
+bt arch.check_init.bInitialized, _return
+# skip initialization if this file has already been initialized...
+
+  mr r3, rArch
+  mr r4, rStart
+  lwz r5, 0(rStart)
+  bl 0x80016a54
+  # else, initialize DAT file, and populate rArch obj with params
+
+  mr r12, rInit
+  mr r11, rArch
+  bl <arch.event>
+  # trigger initialization event by passing dictionary and arch object
+  # - all arguments are skipped, since there is nothing specific being passed
+
+_return:
+mr r3, rArch
+epilog
+blr
+
+
 
 <arch.event> NTSC 1.02
 # Pass a dictionary of symbol:callback entries to this handler to trigger them as events
@@ -166,6 +275,41 @@ bl <arch.event>
 # 0x0 = branch instruction -> callback start
 # 0x4 = start of a null-terminated symbol string representing this event
 #     - string must be unique for this dictionary, and becomes a key for matching symbol in file
-7C0802A6 9421FFA0 90010064 BF610040 7FE00026 3BC10010 7D7B5B78 7C7EE5AA 7D9C6378 83BC0000 37BDFFFF 41800044 849C0004 7F63DB78 2C040000 40A0FFEC 38840004
-bl <arch.symbol>
-2C030000 4080FFDC 7C6A1B78 7C7EE4AA 7FEFF120 819C0000 7F6BDB78 7D8803A6 4E800021 4BFFFFBC BB610040 80010064 38210060 7C0803A6 4E800020
+
+.include "melee"
+punkpc ppc
+melee arch
+prolog rCR, rArgs, rCount, rDict, rArch, +0x30, xArgs
+mfcr rCR
+addi rArgs, sp, sp.xArgs
+mr rArch, r11
+stswi r3, rArgs, 0x1C
+mr rDict, r12
+lwz rCount, 0(rDict)
+
+_for_each:
+  subic. rCount, rCount, 1
+  blt- _return
+  lwzu r4, 0x4(rDict)
+  mr r3, rArch
+  cmpwi r4, 0
+  bge- _for_each    # skip disabled dictionary elements
+  addi r4, r4, 4
+  bl <arch.symbol>
+  cmpwi r3, 0
+  bge+ _for_each   # only run callback if symbol was found
+    mr r10, r3
+    lswi r3, rArgs, 0x1C
+    mtcr rCR
+    lwz r12, 0(rDict)
+    mr r11, rArch
+    mtlr r12
+    blrl
+    b _for_each
+    # pass r3...r9 and cr1...cr7 to callback, as given to this handler
+    # r11 = address of this archive object
+    # r12 = address of callback self
+
+_return:
+epilog
+blr

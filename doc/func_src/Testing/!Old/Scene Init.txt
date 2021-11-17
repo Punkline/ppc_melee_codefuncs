@@ -5,23 +5,7 @@ Scene Initialization Events -- Mastercode
 Enable this injection to install scene initialization events from all lists, below
 [Punkline]
 
-<sceneInitCallback.__lists> NTSC 1.02
-.long <<sceneInitCallbacks.generic>>
-801a1e20
-.long <<sceneInitCallbacks.title>>
-8022dda8
-.long <<sceneInitCallbacks.mainMenu>>
-8026688c
-.long <<sceneInitCallbacks.CSS>>
-8025a998
-.long <<sceneInitCallbacks.SSS>>
-8016e934
-.long <<sceneInitCallbacks.startMelee>>
-8016ec28
-.long <<sceneInitCallbacks.startMelee>>
-8016ebc0
-.long <<sceneInitCallbacks.startMelee>>
-00000000
+
 
 1.02 ------ 801a40e4 --- 4e800021 -> Branch
 .include "melee"; melee
@@ -128,7 +112,7 @@ epilog
 
 -==-
 
-Generic Scene Initialization Events
+Generic Scene Initialization Event List
 
 
 Add routines to initialization of all scenes by appending the list in this code with new items.
@@ -156,11 +140,19 @@ r7 = address of self (this callback)
 #   - pointers values with 0x40000000=True will execute BEFORE scene init
 #   - pointers values with 0x80000000=False bit will be disabled
 
-# Example events -- Uncomment to test:
+
+
+# --- Example events -- Uncomment to test:
+
 
 ## SFX test plays the given param arg as a SFX ID on scene initializations
 #.long <<sceneInitCallbacks.test.SFX>>
 #.long 0x80
+
+## DVD Safety Test
+#.long <<sceneInitCallback.test.DVDSafety>>
+#.long 0  # null arg
+
 
 
 
@@ -169,9 +161,33 @@ r7 = address of self (this callback)
 
 
 
+
+<sceneInitCallback.__lists> NTSC 1.02
+# This is a collection of lists to check individually for init callback recognition
+# - it ties certain scene initializations to different event lists in this text file
+
+.long <<sceneInitCallbacks.generic>>
+801a1e20
+.long <<sceneInitCallbacks.title>>
+8022dda8
+.long <<sceneInitCallbacks.mainMenu>>
+8026688c
+.long <<sceneInitCallbacks.CSS>>
+8025a998
+.long <<sceneInitCallbacks.SSS>>
+8016e934
+.long <<sceneInitCallbacks.startMelee>>
+8016ec28
+.long <<sceneInitCallbacks.startMelee>>
+8016ebc0
+.long <<sceneInitCallbacks.startMelee>>
+00000000
+
+
+
 -==-
 
-Title Scene Initialization Events
+Title Scene Initialization Event List
 
 Add routines to initialization of the title screen by appending the list in this code with new items.
 
@@ -185,7 +201,7 @@ Add routines to initialization of the title screen by appending the list in this
 
 -==-
 
-Main Menu Scene Initialization Events
+Main Menu Scene Initialization Event List
 
 Add routines to initialization of the main menu scene by appending the list in this code with new items.
 
@@ -199,7 +215,7 @@ Add routines to initialization of the main menu scene by appending the list in t
 
 -==-
 
-CSS Initialization Events
+CSS Initialization Event List
 
 Add routines to initialization of the CSS by appending the list in this code with new items.
 
@@ -213,7 +229,7 @@ Add routines to initialization of the CSS by appending the list in this code wit
 
 -==-
 
-SSS Initialization Events
+SSS Initialization Event List
 
 Add routines to initialization of the SSS by appending the list in this code with new items.
 
@@ -227,19 +243,24 @@ Add routines to initialization of the SSS by appending the list in this code wit
 
 -==-
 
-Match Initialization Events
+Match Initialization Event List
 
 Add routines to initialization of new matches by appending the list in this code with new items.
 
 [Punkline]
 <sceneInitCallbacks.startMelee> NTSC 1.02
 
-# Simple Stage Geometry:
-.long <<sceneInitCallback.test.SimpleStageGeometry>>
-.long 1  # true to start enabled
+## Simple Stage Geometry:
+#.long <<sceneInitCallback.test.SimpleStageGeometry>>
+#.long 1  # true to start enabled
+
 
 # <-- add items above this line
 .long 0  # null terminator
+
+
+
+
 
 
 
@@ -249,12 +270,114 @@ Test Events
 
 Uncomment the test events in lists to enable them from this code.
 [Punkline]
+
+<sceneInitCallback.test.DVDSafety> NTSC 1.02
+.include "melee"; melee
+addi r3, r7, _GDesc-_punkpc
+b <GDesc.load>
+# initialize GObj with update/draw routines, defined below
+
+
+
+_GDesc:
+GObj.GDesc GProc=_GProc
+# set up a GObj constructor by plugging into the labels, below
+
+_GProc:
+prolog rData, rMPad, rGObj, rSFX
+enum (0x80), +1, SFX.true, SFX.false
+  mr rGObj, r3
+  data.get rData
+  load rMPad, MPad.Any
+  li rSFX, SFX.false
+  lwz rMPad, MPad.xOnPress(rMPad)
+  rlwinm. r0, rMPad, MPad.mDLeft
+  bne- _DLeft
+  rlwinm. r0, rMPad, MPad.mDRight
+  bne- _DRight
+  rlwinm. r0, rMPad, MPad.mDUp
+  bne- _DUp
+  rlwinm. r0, rMPad, MPad.mDDown
+  beq+ _return
+
+    _DDown:  # --- Safe GmPause.usd Load
+      addi r3, rData, data.xDefault
+      bl <DVD.file>
+      bt- DVD.file.bInvalid, _play_sfx
+      # fail if file isn't found for some reason
+
+      mr r4, DVD.file.rSize
+      li r3, 0
+      bl <mem.info>
+      # else, get byte size from file system table, and check for free alloc of that size in heap
+
+      bf- mem.info.bIsAvailable, _play_SFX
+      # fail if requested bytes aren't available
+
+        li rSFX, SFX.true
+        addi r3, rData, data.xDefault
+        b _read_and_update
+        # else, commit to reading default file, and display RAM
+
+
+
+    _DUp:  # --- Unsafe GmPause.usd Load
+    li rSFX, SFX.true
+      addi r3, rData, data.xDefault
+      b _read_and_update
+      # no protections on DUP, just read default file
+
+    _DLeft:  # --- Safe test.hax load
+      addi r3, rData, data.xTest
+      bl <DVD.file>
+      bt- DVD.file.bInvalid, _play_SFX
+        mr r4, DVD.file.rSize
+        li r3, 0
+        bl <mem.info>
+        bf- mem.info.bIsAvailable, _play_SFX
+          addi r3, rData, data.xTest
+          b _read_and_update
+          # essentially just the same as DDown -- but for different file
+
+    _DRight:
+    addi r3, rData, data.xTest
+    # coninue into _read_and_update...
+
+    _read_and_update:
+    li r4, 0
+    bl <DVD.read>
+
+    _play_SFX:
+    mr r3, rSFX
+    bl <SFX.play>
+
+  _return:
+epilog
+blr
+
+
+
+
+# rStatic:
+data.foot
+
+  0: .asciz "GmPause.usd"
+  1: .asciz "test.hax"
+  align 2
+
+  data.struct 0, "data.", xDefault, xTest
+  # count labels up to 1: and give them struct offset names
+
+
 <sceneInitCallbacks.test.SFX> NTSC 1.02
 b <SFX.play>
 
+
+
 <sceneInitCallback.test.SimpleStageGeometry> NTSC 1.02
 .include "melee"; melee
-prolog, rParam
+prolog rParam
+  mr rParam, r3
   addi r3, r7, _GDesc-_punkpc
   bl <GDesc.load>
   # initialize GObj with update/draw routines, defined below

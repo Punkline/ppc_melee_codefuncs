@@ -17,7 +17,7 @@ TObj.set_TexAnim_ints
   # rParam:
   #  +FFFF0000 = anim starting frame (0xFFFF -- unsigned hword; 0-bit mantissa)
   #  +0000FFFF = anim frame rate     (-0x7F.FF -- signed hword; 8-bit mantissa)
-
+  
 
 TObj.addAnimAll
 # Assign a TexAnim directly to a TObj
@@ -62,13 +62,32 @@ b 0x8035e800
 # r3 = TObj (as given)
 # r4 = TexAnim (as given)
 # r5 = AObj (for this TObj)
-7C0802A6 9421FFD0 90010034 BFA10010 DBE10020 DBC10028 7C7F1B78 FFE00890 7C9E2378 FFC01090
-bl <TObj.addAnimAll>
-7FE3FB78 FC20F890 83BF0064
-bl <TObj.reqAnimAll>
-7FA3EB78 FC20F090
-bl <AObj.setRate>
-7FE3FB78 7FC4F378 7FA5EB78 CBE10020 CBC10028 BBA10010 80010034 38210030 7C0803A6 4E800020
+
+.include "melee"
+punkpc ppc
+melee HSDObj
+prolog rTObj, rTAnim, rAObj, fStart, fRate
+  mr rTObj, r3
+  fmr fStart, f1
+  mr rTAnim, r4
+  fmr fRate, f2
+  bl <TObj.addAnimAll>  # this function frees AObjs before replacing them
+  mr r3, rTObj
+  fmr f1, fStart
+  lwz rAObj, TObj.xAObj(rTObj)
+  bl <TObj.reqAnimAll>
+  mr r3, rAObj
+  fmr f1, fRate
+  bl <AObj.setRate>
+  # TObj has had its old AObj destroyed, and a new one has been constructed with starting frame/rate
+
+  _return:
+  mr r3, rTObj
+  mr r4, rTAnim
+  mr r5, rAObj
+epilog
+blr
+
 
 
 <TObj.set_TexAnim_ints> NTSC 1.02
@@ -84,5 +103,17 @@ bl <AObj.setRate>
 # r3 = TObj (as given)
 # r4 = TexAnim (as given)
 # r5 = AObj (for this TObj)
-9421FFF0 90A10008 3C000804 7CB7E2A6 E021C008 7C17E3A6 E041F00A 7CB7E3A6 38210010
+
+stwu sp, -0x10(sp)
+  stw r5, 0x8(sp)
+  lis r0, 0x804
+  mfspr r5, 919  # backup qr7
+    psq_l f1, 0x8(sp), 1, 4  # fast-cast QR4 == unsigned hword ints (no mantissa)
+    mtspr 919, r0
+    psq_l f2, 0xA(sp), 1, 7  # custom QR7 == signed hword fixed points (8-bit fraction)
+  mtspr 919, r5  # restore old qr7
+addi sp, sp, 0x10
 b <TObj.set_TexAnim>
+# end temporary frame, and branch into real funciton using floating point args
+
+

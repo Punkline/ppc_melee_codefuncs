@@ -1,0 +1,13 @@
+-==-
+
+Scene Initialization Events -- Mastercode
+
+Custom Scene initialization events may be installed by appending standalone function pointers to the callback lists in `_event lists.txt`
+
+Enable this injection to install scene initialization events from everything specified in the defined tables.
+[Punkline]
+1.02 ------ 801a40e4 --- 4e800021 -> Branch
+7C0802A6 9421FFA0 90010064 7C000026 90010030 BEC10034 3B210010 7EE802A6 7C781B78 BF790000 3AC00000 3F608047 637B9D30 3F80804C 639C1FAC 3BBC0110
+lis r0, <<sceneInitCallback.__lists>>-4@h
+ori r30, r0, <<sceneInitCallback.__lists>>-4@l
+7EE0BB78 48000008 841E0004 7C00B800 87FE0004 2D000000 4CC81202 2C1F0000 4C460202 3BFFFFF8 4182000C 40880038 4BFFFFD8 841F0008 540317FE 2C800000 7C63B279 7C9964AA 4C461042 807F0004 540701C0 40A2FFB4 7CE803A6 4DA40021 4BFFFFD4 6AD60001 2C160001 40820014 7EE803A6 7F03C378 4E800021 4BFFFF7C BAC10034 80010030 7C0FF120 80010064 38210060 7C0803A6 00000000

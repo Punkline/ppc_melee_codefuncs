@@ -30,12 +30,12 @@ regs -1, /*
 r13.xCSSJObjRoot    = -0x49E0
 
 enum (0x80), +1, SFX.true, SFX.false
-mr rIcon, r3
-mr rBackup, r4
 prolog r16, +0x100, xReturns
 regs /*
 */ (r27), rData, rSFX, rMPad, /*
 */ (r22), rStart, rRoot
+mr rIcon, r3
+mr rBackup, r4
 
 load rMPad, MPad.addr
 mulli r0, rPlayerID, MPad.size
@@ -118,9 +118,9 @@ b _return
   bl <SFX.play>
 
 _return:
-epilog
 mr r4, rBackup
 mr r3, rIcon
+epilog
 # recover old context before finishing injection code...
 
 # original instruction, and return from injection:

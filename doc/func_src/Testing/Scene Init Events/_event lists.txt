@@ -1,0 +1,147 @@
+-==-
+
+Generic Scene Initialization Event List
+
+
+Add routines to initialization of all scenes by appending the list in this code with new items.
+
+Each list item is 64 bits:
+0x0: pointer to init callback routine
+0x4: optional 32-bit argument param
+# - callback routines are executed after scene initialization
+#   - pointers values with 0x40000000=True will execute BEFORE scene init
+#   - pointers values with 0x80000000=False bit will be disabled
+
+All callback routines receive the following args when called:
+r3 = optional 32-bit argument param
+r4 = scene controller struct
+r5 = start of MPad inputs array (controller 1, 2, 3, 4)
+r6 = combined MPad inputs (all controllers)
+r7 = address of self (this callback)
+
+[Punkline]
+<sceneInitCallbacks.generic> NTSC 1.02
+# list items are 64-bit:
+# 0x0: pointer to init callback routine
+# 0x4: optional 32-bit argument param
+# - callback routines are executed after scene initialization
+#   - pointers values with 0x40000000=True will execute BEFORE scene init
+#   - pointers values with 0x80000000=False bit will be disabled
+
+
+
+# --- Example events -- Uncomment to test:
+
+
+## SFX test plays the given param arg as a SFX ID on scene initializations
+#.long <<sceneInitCallbacks.test.SFX>>
+#.long 0x80
+
+## DVD Safety Test
+#.long <<sceneInitCallback.test.DVDSafety>>
+#.long 0  # null arg
+
+
+
+
+# <-- add items above this line
+.long 0  # null terminator
+
+
+
+
+<sceneInitCallback.__lists> NTSC 1.02
+# This is a collection of lists to check individually for init callback recognition
+# - it ties certain scene initializations to different event lists in this text file
+
+.long <<sceneInitCallbacks.generic>>
+801a1e20
+.long <<sceneInitCallbacks.title>>
+8022dda8
+.long <<sceneInitCallbacks.mainMenu>>
+8026688c
+.long <<sceneInitCallbacks.CSS>>
+8025a998
+.long <<sceneInitCallbacks.SSS>>
+8016e934
+.long <<sceneInitCallbacks.startMelee>>
+8016ec28
+.long <<sceneInitCallbacks.startMelee>>
+8016ebc0
+.long <<sceneInitCallbacks.startMelee>>
+00000000
+
+
+
+-==-
+
+Title Scene Initialization Event List
+
+Add routines to initialization of the title screen by appending the list in this code with new items.
+
+[Punkline]
+<sceneInitCallbacks.title> NTSC 1.02
+
+# <-- add items above this line
+.long 0  # null terminator
+
+
+
+-==-
+
+Main Menu Scene Initialization Event List
+
+Add routines to initialization of the main menu scene by appending the list in this code with new items.
+
+[Punkline]
+<sceneInitCallbacks.mainMenu> NTSC 1.02
+
+# <-- add items above this line
+.long 0  # null terminator
+
+
+
+-==-
+
+CSS Initialization Event List
+
+Add routines to initialization of the CSS by appending the list in this code with new items.
+
+[Punkline]
+<sceneInitCallbacks.CSS> NTSC 1.02
+
+# <-- add items above this line
+.long 0  # null terminator
+
+
+
+-==-
+
+SSS Initialization Event List
+
+Add routines to initialization of the SSS by appending the list in this code with new items.
+
+[Punkline]
+<sceneInitCallbacks.SSS> NTSC 1.02
+
+# <-- add items above this line
+.long 0  # null terminator
+
+
+
+-==-
+
+Match Initialization Event List
+
+Add routines to initialization of new matches by appending the list in this code with new items.
+
+[Punkline]
+<sceneInitCallbacks.startMelee> NTSC 1.02
+
+## Simple Stage Geometry:
+#.long <<sceneInitCallback.test.SimpleStageGeometry>>
+#.long 1  # true to start enabled
+
+
+# <-- add items above this line
+.long 0  # null terminator

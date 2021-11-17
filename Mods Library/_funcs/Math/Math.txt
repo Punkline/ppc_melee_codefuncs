@@ -44,17 +44,10 @@ b 0x80022df8
 
 # --- returns:
 # f1 = fSQRT
-mflr r0
-stwu sp, -0x20(sp)
-stw  r0,  0x20+4(sp)
-stfs f1, 0x10(sp)
+7C0802A6 9421FFE0 90010024 D0210010
 bl <rsqrt>
-lfs f0, 0x10(sp)
-fmuls f1, f1, f0
-lwz  r0,  0x20+4(sp)
-addi sp, sp, 0x20
-mtlr r0
-blr
+C0010010 EC210032 80010024 38210020 7C0803A6 4E800020
+
 
 
 
@@ -69,66 +62,8 @@ blr
 # r5 = address of output base
 # r6 = number of bytes (must be even)
 # f1 = interpolation percentage (floor...ceil)
-
-.include "melee"
-punkpc regs
-regs (r3), rFloor, rCeil, rOut, rCount, rQR
-regs (f1), fCoef, fFloor, fCeil
-lis r0, 0x0804
-mfspr rQR, 919
-ori r0, r0, 0x0804
-rlwinm rCount, rCount, 0, ~1
-mtspr 919, r0
-# set scale, and backup old scale in case it's currently in use
-# - if rCount is odd, it has been floored to an even number
-
-_for_each:
-  subic. rCount, rCount, 2
-  blt- _return
-  # return if count has been exhausted
-
-    psq_lx fFloor, rFloor, rCount, 0, 7
-    psq_lx fCeil, rCeil, rCount, 0, 7
-    ps_sub f0, fCeil, fFloor
-    ps_madds0 f0, f0, fCoef, fFloor
-    psq_stx f0, r3, rCount, 0, 7
-    b _for_each
-    # ... else quickly lerp and cap 2 byte channels, using QR hardware
-    # - lost bits are truncated (floored) without rounding
-
-_return:
-mtspr 919, rQR
-blr
+3C000804 7CF7E2A6 60000804 54C6003C 7C17E3A6 34C6FFFE 4180001C 1043338C 1064338C 10031028 1000105C 1003338E 4BFFFFE4 7CF7E3A6 4E800020
 
 
 <color.lerp> ALL
-.include "melee"
-punkpc ppc
-prolog xFloor, xCeil, xOut
-regs (r3), rFloor, rCeil, rOut, rQR
-regs (f1), fCoef, fFloor, fCeil, fRound
-lis r0, 0x3B00
-stw r3, sp.xFloor(sp)
-stw r0, sp.xOut(sp)
-mfspr rQR, spr.qr7
-lis r0, 0x0804
-lfs fRound, sp.xOut(sp)
-ori r0, r0, 0x0804
-stw r4, sp.xCeil(sp)
-mtspr spr.qr7, r0
-psq_l fFloor, sp.xFloor+0(sp), 0, 7
-psq_l fCeil, sp.xCeil+0(sp), 0, 7
-ps_sub f0, fCeil, fFloor
-ps_add fFloor, fFloor, fRound
-psq_l fCeil, sp.xCeil+2(sp), 0, 7
-ps_madds0 f0, f0, fCoef, fFloor
-psq_l fFloor, sp.xFloor+2(sp), 0, 7
-psq_st f0, sp.xOut+0(sp), 0, 7
-ps_sub f0, fCeil, fFloor
-ps_add fFloor, fFloor, fRound
-ps_madds0 f0, f0, fCoef, fFloor
-psq_st f0, sp.xOut+2(sp), 0, 7
-lwz r5, sp.xOut(sp)
-mtspr spr.qr7, rQR
-epilog
-blr
+7C0802A6 9421FFF0 90010014 3C003B00 90610010 90010010 7CD7E2A6 3C000804 C0810010 60000804 90810010 7C17E3A6 E0417010 E0617010 10031028 1042202A E0617012 1000105C E0417012 F0017010 10031028 1042202A 1000105C F0017012 80A10010 7CD7E3A6 80010014 38210010 7C0803A6 4E800020

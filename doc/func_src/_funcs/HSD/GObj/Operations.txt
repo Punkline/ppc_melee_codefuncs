@@ -158,14 +158,67 @@ b 0x803910D8
 
 
 <GObj.get_PLink> NTSC 1.02
-38C0C18C
+li r6, -0x3E74
 b <GObj.__get_link>
 <GObj.get_GXLink> NTSC 1.02
-38C0C184
+li r6, -0x3E7C
 b <GObj.__get_link>
 <GObj.__get_link> NTSC 1.02
-2C050000 38E00008 40A00010 38E0000C 38C6FFFC 7CA500D0 2C06C184 41A10008 38E70008 2C040000 7CC6682E 4180000C 5484103A 7C84302E 2C040000 40800028 2C03FFFF 41820010 A0040000 7C001800 40A2000C 34A5FFFF 4180000C 7C84382E 4BFFFFD8 7C832378 4E800020
+.include "melee"
+melee GObj
+punkpc regs
+regs (r3), rClass, rLink, rIndex, rTable, rX
+cmpwi rIndex, 0
+li rX, GObj.xNext
+bge+ 0f
+  li rX, GObj.xPrev
+  subi rTable, rTable, 4
+  neg rIndex, rIndex
+  # select descending groups instead of ascending, if using xPrev
 
+0:
+cmpwi rTable, r13.xGXLinks
+bgt+ 0f
+  addi rX, rX, GObj.xNextGX-GObj.xNext
+  # use GX links instead of PLinks, if GX base is detected
+
+0:
+cmpwi rLink, 0
+lwzx rTable, rTable, r13
+blt- 0f
+  slwi rLink, rLink, 2
+  lwzx rLink, rLink, rTable
+  # load PLink ID from rBase, if ID was provided
+
+0:
+
+_for_each_link:
+  cmpwi rLink, 0
+  bge- _return
+  # return if null...
+
+  cmpwi rClass, -1
+  beq- _decr
+  # skip class check if not looking for a specific class
+
+  lhz r0, GObj.xClass(rLink)
+  cmpw r0, rClass
+  bne+ 0f
+  # else, skip index decrement if class does not match
+
+    _decr:
+    subic. rIndex, rIndex, 1
+    blt- _return
+    # decrement index if class matches, and return if count has gone negative
+
+  0:
+  lwzx rLink, rLink, rX
+  b _for_each_link
+  # iterate until a null is found, or index decrement is exhausted
+
+_return:
+mr r3, rLink
+blr
 
 -==-
 GProc Operations

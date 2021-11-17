@@ -10,5 +10,9 @@ args: rSFX
 
 # --- args:
 # r3 = SFX ID
-388000FE 38A00080 38C00000 38E00007
+
+li r4, 0xFE
+li r5, 0x80
+li r6, 0
+li r7, 7
 b 0x8038cff4

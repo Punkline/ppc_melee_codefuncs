@@ -3,6 +3,9 @@
 Primitive Drawing Module
 2.0 -- Standalone Version
 
+Automatic installation occurs when any of the following functions are used in another code:
+
+
 
 prim.new -- Start drawing vertices using argument params
 # --- args:
@@ -51,12 +54,16 @@ prim.mFixPoint_Frac   = 0x1F
 # r3 = GX FIFO pipe hardware address
 # - use this to write vertex data by storing to 0x0(r3)
 
+# --- NOTE - `mOneColor` and `m*Index*` features are not completely implemented as of this version
+
+
 
 prim.close -- stop drawing verts, and invalidate the current params
 # no args
 
 
-prim.set -- prepare to begin drawing by setting params from an input data pointer
+
+prim.set -- set drawing params without beginning the draw step
 # --- args:
 # r3 = number of verts (to default to)
 #      - the default vert count is only invoked when -1 is given
@@ -78,13 +85,6 @@ prim.xColor   = 0x14  # - optional: prim.mOneColor
 # - this syntax variation does not alter the default vert count
 
 
-prim.reset_mem -- reset memory of last settings to defaults
-# no args
-
-
-prim.set_default -- reset memory and use them to set params
-# no args
-
 
 prim.start -- commit to begin drawing from set params
 # --- args:
@@ -93,6 +93,18 @@ prim.start -- commit to begin drawing from set params
 # r3 = GX FIFO pipe (hardware address for storing vertex data)
 
 
+
+prim.reset_mem -- reset params memory to defaults
+# no args
+
+
+
+prim.reset_params -- set params (and memory) back to defaults
+# no args
+
+
+
+# Alternatives to prim.start:
 prim.quads -- alternatives to prim.start
 prim.triangles
 prim.trianglestrip
@@ -105,6 +117,7 @@ prim.points
 # - use any of these to force the stated primitive type
 # --- returns:
 # r3 = GX FIFO pipe (hardware address for storing vertex data)
+
 
 
 prim.lines_width
@@ -163,34 +176,6 @@ prim.points_width
 #  +2 = equal to
 #  +1 = less than
 
-# prim.mCIndexed
-# +00000080  00000000 = Set Indexed Colors (from r6)
-#  false = r6 is ignored; colors are input with the vertex directly from gx fifo
-#  true  = r6 specifies the base of an array of vertex colors
-#  - inidexed colors are fed to GX using an ID instead of an actual color
-
-# prim.mCIndex16
-# +00000040  00000000 = Indexed Colors are 16-bit
-#  false = Color IDs are bytes
-#  true  = Color IDs are hwords
-
-# prim.mPIndexed
-# +00000020  00000000 = Set Indexed Position Coords (from r7)
-#  false = position coordinates are input with the vertex directly from fifo
-#  true  = r7 specifies the base of an array of vertex position coordinates
-#  - indexed positions are fed to GX using an ID instead of an actual set of coordinates
-
-# prim.mPIndex16
-# +00000010  00000000 = Indexed Position Coords are 16-bit
-#  false = Position IDs are bytes
-#  true  = Position IDs are hwords
-
-# prim.mIRecache
-# +00000008  00000000 = Indexed Data needs re-cache
-#  false = read-only vertex data is read without the need for flushing and waiting for ppcsync
-#  true  = flushes DC at array regions to prevent incoherence between CPU and GPU cache
-#  - only required for indexed variables -- GPU can't read pending I/O from the CPU outside of fifo
-
 # prim.mPrimType
 # +00000007  00000000 = Primitive Type
 #  0 = quads
@@ -213,11 +198,6 @@ prim.points_width
 # +00000000  00800000 = Use Custom MTX (input in r8)
 # false = use current CObj mtx
 # true  = interpret r8 as either a CObj, a JObj, or a MTX
-
-# prim.mOneColor
-# +00000000  00400000 = Use Constant Color (input in r9)
-# false = r9 is ignored; colors are read for each individual vertex
-# true  = r9 specifies a color to use for all vertices in this polygon
 
 # prim.mNoZCoord
 # +00000000  00200000 = Omit Z coord in Position input
@@ -290,146 +270,116 @@ prim.points_width
 #  D -- INVOR;   dst = ~src | dst
 #  E -- NAND;    dst = ~(src & dst)
 #  F -- SET;     dst = 1
+
+
+
+Partially implemented features:
+# --- m*Indexed* features will work, but only for first index
+# - future versions will allow you to select from 256 or 65536 indices
+
+# prim.mCIndexed
+# +00000080  00000000 = Set Indexed Colors (from r6)
+#  false = r6 is ignored; colors are input with the vertex directly from gx fifo
+#  true  = r6 specifies the base of an array of vertex colors
+#  - inidexed colors are fed to GX using an ID instead of an actual color
+
+# prim.mCIndex16
+# +00000040  00000000 = Indexed Colors are 16-bit
+#  false = Color IDs are bytes
+#  true  = Color IDs are hwords
+
+# prim.mPIndexed
+# +00000020  00000000 = Set Indexed Position Coords (from r7)
+#  false = position coordinates are input with the vertex directly from fifo
+#  true  = r7 specifies the base of an array of vertex position coordinates
+#  - indexed positions are fed to GX using an ID instead of an actual set of coordinates
+
+# prim.mPIndex16
+# +00000010  00000000 = Indexed Position Coords are 16-bit
+#  false = Position IDs are bytes
+#  true  = Position IDs are hwords
+
+# prim.mIRecache
+# +00000008  00000000 = Indexed Data needs re-cache
+#  false = read-only vertex data is read without the need for flushing and waiting for ppcsync
+#  true  = flushes DC at array regions to prevent incoherence between CPU and GPU cache
+#  - only required for indexed variables -- GPU can't read pending I/O from the CPU outside of fifo
+
+# prim.mOneColor
+# +00000000  00400000 = Use Constant Color (input in r9)
+# false = r9 is ignored; colors are read for each individual vertex
+# true  = r9 specifies a color to use for all vertices in this polygon
 [Punkline]
 <prim.close> NTSC 1.02
 # Close the current set of drawing params
-li r3, -1
+3860FFFF
 b 0x80361fc4
 
 
 
 <prim.new> NTSC 1.02
+7C0802A6 9421FFF0 90010014
+bl <prim.set>
+3860FFFF
+bl <prim.start>
+80010014 38210010 7C0803A6 4E800020
 
-.include "melee"; melee
-
-prolog
-  bl <prim.set>
-  li r3, -1
-  bl <prim.start>
-epilog
-blr
 
 
 <prim.start> NTSC 1.02
 # Start drawing verts using current params
-li r4, -1
-li r5, -1
+3880FFFF 38A0FFFF
 b <prim.__start>
 
 <prim.quads> NTSC 1.02
 # Variations allow override of primitive type
-li r4, 0
+38800000
 b <prim.__start>
 <prim.triangles> NTSC 1.02
-li r4, 2
+38800002
 b <prim.__start>
 <prim.trianglestrip> NTSC 1.02
-li r4, 3
+38800003
 b <prim.__start>
 <prim.trianglefan> NTSC 1.02
-li r4, 4
+38800004
 b <prim.__start>
 <prim.lines> NTSC 1.02
-li r4, 5
-li r5, -1
+38800005
+38A0FFFF
 b <prim.__start>
 <prim.linestrip> NTSC 1.02
-li r4, 6
-li r5, -1
+38800006 38A0FFFF
 b <prim.__start>
 <prim.points> NTSC 1.02
-li r4, 7
-li r5, -1
+38800007 38A0FFFF
 b <prim.__start>
 
 <prim.lines_width> NTSC 1.02
 # Variations include a line/point width/size argument
-mr r5, r4
-li r4, 5
+7C852378 38800005
 b <prim.__start>
 <prim.linestrip_width> NTSC 1.02
-mr r5, r4
-li r4, 6
+7C852378 38800006
 b <prim.__start>
 <prim.points_width> NTSC 1.02
-mr r5, r4
-li r4, 7
+7C852378 38800007
 b <prim.__start>
 
 <prim.__start> NTSC 1.02
 # r3 = number of verts
 # r4 = primitive type
 # r5 = width argument (for line or point primitive types)
-.include "melee"; melee
-prolog rParams, rVerts, rType
-  lis r31, <<prim.__set_memory>>@h
-  ori r31, r31, <<prim.__set_memory>>@l
-  # rParams = r31
-
-  mr. rVerts, r3
-  bge+ 0f
-    lwz rVerts, prim.xVerts(rParams)
-    # sample old xVerts if negative is given
-
-  0:
-  mr. rType, r4
-  stw rVerts, prim.xVerts(rParams)
-  # update xVerts
-
-  lwz r0, prim.xParamsH(rParams)
-  bge+ 0f
-    rlwinm rType, r0, prim.mPrimType
-    # sample set primitive type if negative is given
-
-  0:
-  cmpwi rType, (GX_LINES-0x80)>>3
-  blt+ 0f
-    mr. r3, r5
-    bge+ 1f
-      rlwinm r3, r0, prim.mLineSize
-      # sample set line size if negative is given
-
-    1:
-    cmpwi rType, (GX_POINTS-0x80)>>3
-    beq+ 1f
-      li r4, 0
-      bl <GX.setLineWidth>
-      b 0f
-
-    1:
-    bl <GX.setPointSize>
-    # line/point width has been set, if using lines or points
-
-  0:
-  #lwz r0, prim.xParamsL(rParams)
-  #rlwinm. r0, r0, prim.mOneColor
-  #beq+ 0f
-  #  #addi r3, rParams, prim.xColor
-  #  #bl 0x80058acc
-  #  addi r4, rParams, prim.xColor
-  #  li r3, 0
-  #  #bl 0x8033ff68
-  #  bl 0x803401ec
-  #0:
-  # apply color, if using only 1 color
-
-  rlwinm r3, rType, 3, 0x7<<3
-  li r4, 0
-  addi r3, r3, 0x80
-  mr r5, rVerts
-  bl <GX.begin>
-
-_return:
-lis r3, 0xCC01
-subi r3, r3, 0x8000
-epilog
-blr
-
-
-
-
-
-
+7C0802A6 9421FFE0 90010024 BFA10010
+lis r31, <<prim.__set_memory>>@h
+ori r31, r31, <<prim.__set_memory>>@l
+7C7E1B79 40A00008 83DF0018 7C9D2379 93DF0018 801F0000 40A00008 541D077E 2C1D0005 41A00028 7CA32B79 40A00008 5403853E 2C1D0007 38800000 41A2000C
+bl <GX.setLineWidth>
+48000008
+bl <GX.setPointSize>
+57A31EB8 38800000 38630080 7FC5F378
+bl <GX.begin>
+3C60CC01 38638000 BBA10010 80010024 38210020 7C0803A6 4E800020
 
 <prim.__set_memory> NTSC 1.02
 # This is static memory reserved for storing the last used draw settings
@@ -440,30 +390,19 @@ blr
 
 <prim.reset_mem> NTSC 1.02
 # Reset params memory to default values
-li r3, 0
+38600000
 b <prim.__reset_mem>
 
-<prim.set_default> NTSC 1.02
+<prim.reset_params> NTSC 1.02
 # Reset params to defaults, and then set them
-li r3, 1
+38600001
 b <prim.__reset_mem>
 
 <prim.__reset_mem> NTSC 1.02
-cmpwi r3, 0
+2C030000
 lis r3, <<prim.__set_memory>>@h
 ori r3, r3, <<prim.__set_memory>>@l
-lwz r0, 0x1C(r3)
-stw r0, 0x0(r3)
-lwz r0, 0x20(r3)
-stw r0, 0x4(r3)
-li r0, 0
-stw r0, 0x08(r3)
-stw r0, 0x0C(r3)
-stw r0, 0x10(r3)
-stw r0, 0x14(r3)
-stw r0, 0x18(r3)
-beqlr
-li r3, -1
+8003001C 90030000 80030020 90030004 38000000 90030008 9003000C 90030010 90030014 90030018 4D820020 3860FFFF
 b <prim.set>
 
 
@@ -484,249 +423,56 @@ b <prim.set>
 # Alternative syntax:
 # r3 = -1 (use previous params)
 #   - if no params have been used yet, then default params are used
-
-.include "melee"; melee
-prolog rColor, rMtx, rPIBase, rCIBase, rParamsL, rParamsH, rParams, rFixed, rSaved, rCStride, rPStride, rMem, cr, +0x20, xSaved
-
-  cmpwi r3, -1
-  mr rParams, r3
-  addi rSaved, sp, sp.xSaved
-  lis r20, <<prim.__set_memory>>@h
-  ori r20, r20, <<prim.__set_memory>>@l
-  # rMem = r20
-
-  blt- 0f
-    mr rParams, rMem
-    beq- 0f
-      stw r3, prim.xVerts(rParams)
-      stswi r4, rParams, 0x18
-      # store args if a non-address is given in r3
-
-  0:
-
-  lmw rParamsH, 0(rParams)
-  stmw rParamsH, 0(rMem)
-  # update memorized params with the current params
-
-  rlwinm r0, rParamsH, prim.mNoColor
-  xori r3, r0, 1
-  #  - logic is inverted for this syntax to preserve backwards compatibility with older versions
-
-  # load r3, GX_TRUE
-  bl <GX.setColorUpdate>
-  rlwinm r3, rParamsH, prim.mAlphaBuf
-
-  # load r3, GX_FALSE
-  bl <GX.setAlphaUpdate>
-
-  rlwinm r3, rParamsL, prim.mBMode
-  rlwinm r4, rParamsL, prim.mBMSource
-  rlwinm r5, rParamsL, prim.mBMDest
-  rlwinm r6, rParamsL, prim.mBMLogic
-
-  # load r3, GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_NOOP
-  bl <GX.setBlendMode>
-
-  load r3, GX_GREATER, 0, GX_AOP_AND, GX_GREATER, 0
-  bl <GX.setAlphaCompare>
-
-  rlwinm r3, rParamsH, prim.mZCompare
-  rlwinm r4, rParamsH, prim.mZLogic
-  rlwinm r5, rParamsH, prim.mZBuffer
-  # load r3, GX_TRUE, GX_LEQUAL, GX_FALSE
-  bl <GX.setZMode>
-
-  rlwinm r3, rParamsH, prim.mZCompLoc
-  # load r3, GX_FALSE
-  bl <GX.setZCompLoc>
-
-  load r3, 0
-  bl <GX.setNumTexGens>
-  load r3, 1
-  bl <GX.setNumTevStages>
-  load r3, GX_TEVSTAGE0, GX_TEXCOORDNULL, GX_TEXMAP_NULL, GX_COLOR0A0
-  bl <GX.setTevOrder>
-  load r3, GX_TEVSTAGE0, GX_PASSCLR
-  bl <GX.setTevOp>
-  load r3, 1
-  bl <GX.setNumChans>
-  # - these might be more customizable in a later version
-  #   - you may override these defaults by using <prim.set> followed by addendums
-
-
-
-  load r3, GX_COLOR0A0, GX_FALSE, 0, 1, GX_LIGHTNULL, GX_DF_NONE, GX_AF_NONE
-  bl <GX.setChanCtrl>
-
-  rlwinm r3, rParamsH, prim.mCullMode
-  # load r3, GX_CULL_NONE
-  bl <GX.setCullMode>
-
-  bl <GX.clearVtxDesc>
-  rlwinm rFixed, rParamsL, prim.mFixPoint
-  li r3, GX_VTXFMT0
-  rlwinm. r0, rFixed, prim.mFixPoint_Enable
-  li r6, GX_F32
-  li r7, 0
-  li rPStride, 4
-  li r4, GX_VA_POS
-  beq+ 0f
-    rlwinm r6, rFixed, prim.mFixPoint_Type
-    li r0, 1
-    rlwinm r7, rFixed, prim.mFixPoint_Frac
-    slw rPStride, r0, r6
-    # use custom fixed point data type, if flagged
-
-  0:
-  rlwinm. r5, rParamsL, prim.mNoZCoord
-  slwi r0, rPStride, 1
-  xori r5, r5, 1
-  bne+ 0f
-    mulli r0, rPStride, 3
-  0:
-  mr rPStride, r0
-  # load r3, GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0
-  bl <GX.setVtxAttrFmt>  # pos def
-
-  #rlwinm. r0, rParamsL, prim.mOneColor
-  load r3, GX_VTXFMT0, GX_VA_COLOR0
-  #bne- 0f
-  rlwinm. r0, rParamsL, prim.mRGBComp
-  rlwinm r0, rParamsL, prim.mNoAChan
-  load r6, GX_RGBA8, 0
-  xori r5, r0, 1
-  li rCStride, 0
-  beq+ 0f
-    rlwinm r6, rParamsL, prim.mRGBType
-    srwi rCStride, r6, 1
-    addi rCStride, rCStride, 2
-  0:
-  xori r5, r0, 1
-  # load r3, GX_VTXFMT0, GX_COLOR0, GX_CLR_RGBA, 5, GX_RGBA8
-  bl <GX.setVtxAttrFmt>  # color def
-
-  rlwinm. r0, rParamsH, prim.mPIndexed
-  load r3, GX_VA_POS, GX_DIRECT
-  stswi r3, rSaved, 0x8
-  beq+ 0f
-    li r4, GX_INDEX8
-    rlwinm. r0, rParamsH, prim.mPIndex16
-    beq+ 1f
-      li r4, GX_INDEX16
-    1:
-    stw r4, 0x4(rSaved)
-    mr. r3, rPIBase
-    bge- 1f
-      rlwinm. r0, rParamsH, prim.mIRecache
-      subi r0, r4, 1            # 1 = 8bit; 2 = 16bit
-      slwi r4, r0, 3            # 8 = 8bit; 16 = 16bit
-      li r0, 1
-      slw r4, r0, r4            # 0x100 = 8bit; 0x10000 = 16bit
-      mullw r4, rPStride, r4    # *= stride == data flush size
-      #mr r4, rPStride
-      beq+ 2f
-        bl <data.flush_DC>        # data is now safe for GPU to recache
-      2:
-      li r3, GX_VA_POS
-      mr r4, rPIBase
-      mr r5, rPStride
-      bl <GX.setArray>
-    1:
-  0:
-  lswi r3, rSaved, 0x8
-  bl <GX.setVtxDesc>
-
-  rlwinm. r0, rParamsL, prim.mOneColor
-  li r3, GX_VA_COLOR0
-  li r4, GX_DIRECT
-  beq- 1f
-    #addi r4, rMem, prim.xColor
-    #mr r5, rCStride
-    #bl <GX.setArray>
-    li r4, GX_NONE
-    b 0f
-  1:
-  #li r3, GX_VA_COLOR0
-  rlwinm. r0, rParamsH, prim.mCIndexed
-  stswi r3, rSaved, 0x8
-  beq+ 0f
-    li r4, GX_INDEX8
-    rlwinm. r0, rParamsH, prim.mCIndex16
-    beq+ 1f
-      li r4, GX_INDEX16
-    1:
-    stw r4, 0x4(rSaved)
-    mr. r3, rCIBase
-    bge- 1f
-      rlwinm. r0, rParamsH, prim.mIRecache
-      subi r0, r4, 1            # 1 = 8bit; 2 = 16bit
-      slwi r4, r0, 3            # 8 = 8bit; 16 = 16bit
-      li r0, 1
-      slw r4, r0, r4            # 0x100 = 8bit; 0x10000 = 16bit
-      mullw r4, rCStride, r4    # *= stride == data flush size
-      #mr r4, rCStride
-      beq+ 2f
-        bl <data.flush_DC>        # data is now safe for GPU to recache
-      2:
-      li r3, GX_VA_COLOR0
-      mr r4, rCIBase
-      mr r5, rCStride
-      bl <GX.setArray>
-    1:
-  0:
-  lswi r3, rSaved, 0x8
-  bl <GX.setVtxDesc>
-  3:
-
-  rlwinm. r0, rParamsL, prim.mOtherMTX
-  mr r3, rMtx
-  bne- 0f
-    bl <CObj.getCurrent>
-  0:
-  # if not usin an input MTX, just use the current CObj MTX
-
-  cmpwi r3, -1
-  blt+ 0f
-    beq- 1f
-
-      # if MTX is a positive ID, use it to select a camera...
-      lwz r4, r13.xGXLinks(r13)
-      lwz r4, GXLink.xCameras(r4)
-      2: subic. r3, r3, 1
-        blt+ 3f
-          lwz r0, GObj.xNext(r4)
-          cmpwi r0, 0
-          beq- 3f
-            mr r4, r0
-            b 2b
-            # if a camera isn't available, just use last one found
-
-    1: lwz r3, r13.xOrthoCObj(r13)
-    b 0f
-    # if ID is -1, use developer mode ortho overlay camera
-
-    3:
-    lwz r3, GObj.xObj(r4)
-    # if using a camera GObj, get the CObj pointer in the GObj structure
-
-  0:
-  load r4, HSD.hsd_CObj_info, HSD.hsd_JObj_info
-  lwz r0, HSD.Class.xInfo(r3)
-  cmpw r0, r4
-  bne+ 0f
-    addi r3, r3, CObj.xStart_MTX
-  0: cmpw r0, r5
-  bne+ 0f
-    addi r3, r3, JObj.xStart_MTX
-  0:
-  # if a live JObj or CObj was given, use the MTX in their object properties
-  # - else, assume given struct is a MTX
-
-  li r4, 0
-  bl <GX.loadPosMtxImm>
-  load r3, 0
-  bl <GX.setCurrentMtx>
-  # cache given MTX values for drawing verts
-
-epilog
-blr
+7C0802A6 9421FF90 90010074 7C000026 90010030 BE810034 2C03FFFF 7C791B78 3AE10010
+lis r20, <<prim.__set_memory>>@h
+ori r20, r20, <<prim.__set_memory>>@l
+41800014 7E99A378 4182000C 90790018 7C99C5AA BB590000 BF540000 57401FFE 68030001
+bl <GX.setColorUpdate>
+574327FE
+bl <GX.setAlphaUpdate>
+5763A7BE 5764C77E 5765E77E 5766073E
+bl <GX.setBlendMode>
+38600004 38800000 38A00000 38C00004 38E00000
+bl <GX.setAlphaCompare>
+5743A7FE 5744C77E 5745AFFE
+bl <GX.setZMode>
+57439FFE
+bl <GX.setZCompLoc>
+38600000
+bl <GX.setNumTexGens>
+38600001
+bl <GX.setNumTevStages>
+38600000 388000FF 38A000FF 38C00004
+bl <GX.setTevOrder>
+38600000 38800004
+bl <GX.setTevOp>
+38600001
+bl <GX.setNumChans>
+38600004 38800000 38A00000 38C00001 38E00000 39000000 39200002
+bl <GX.setChanCtrl>
+574317BE
+bl <GX.setCullMode>
+bl <GX.clearVtxDesc>
+5778463E 38600000 5700CFFF 38C00004 38E00000 3AA00004 38800009 41A20014 5706DFBE 38000001 570706FE 7C153030 57655FFF 56A0083C 68A50001 40A20008 1C150003 7C150378
+bl <GX.setVtxAttrFmt>
+38600000 3880000B 57606FFF 576067FE 38C00005 38E00000 68050001 3AC00000 41A20010 5766877E 54D6F87E 3AD60002 68050001
+bl <GX.setVtxAttrFmt>
+5740DFFF 38600009 38800001 7C7745AA 41A20050 38800002 5740E7FF 41A20008 38800003 90970004 7FA3EB79 40800034 5740EFFF 3804FFFF 54041838 38000001 7C042030 7C9521D6 41A20008
+bl <data.flush_DC>
+38600009 7FA4EB78 7EA5AB78
+bl <GX.setArray>
+7C7744AA
+bl <GX.setVtxDesc>
+576057FF 3860000B 38800001 4182000C 38800000 4800005C 5740CFFF 7C7745AA 41A20050 38800002 5740D7FF 41A20008 38800003 90970004 7F83E379 40800034 5740EFFF 3804FFFF 54041838 38000001 7C042030 7C9621D6 41A20008
+bl <data.flush_DC>
+3860000B 7F84E378 7EC5B378
+bl <GX.setArray>
+7C7744AA
+bl <GX.setVtxDesc>
+57604FFF 7FC3F378 40820008
+bl <CObj.getCurrent>
+2C03FFFF 41A00038 41820028 808DC184 80840100 3463FFFF 41A00020 80040008 2C000000 41820014 7C040378 4BFFFFE8 806DB780 48000008 80640028 3C808040 60846220 3CA08040 60A56708 80030000 7C002000 40A20008 38630054 7C002800 40A20008 38630044 38800000
+bl <GX.loadPosMtxImm>
+38600000
+bl <GX.setCurrentMtx>
+BA810034 80010030 7C0FF120 80010074 38210070 7C0803A6 4E800020

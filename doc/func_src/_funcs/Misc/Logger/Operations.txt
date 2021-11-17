@@ -64,16 +64,25 @@ returns: rScene, rRel, rBoot, rID, rTrans, rMajor, rMinor, rTBU, rTBL, fScene, f
 # r4...r10 = GPR arguments
 # f1...f8  = FPR arguments
 # - these will be fed into the escapes found in the format string, as needed
-4CC63342
-b 0x80323eb4
 
+crorc 6, 6, 6  # enables FPR args
+b 0x80323eb4   # printf
 
 
 <log.nl>
 # Prints a null message to give the appearence of a newline without emitting one
-7C0802A6 9421FFE0 90010024 38000000 90010010 38610010
+mflr r0
+stwu sp, -0x20(sp)
+stw  r0,  0x20+4(sp)
+li r0, 0
+stw r0, 0x10(sp)
+addi r3, sp, 0x10
 bl <log.print>
-80010024 38210020 7C0803A6 4E800020
+lwz  r0,  0x20+4(sp)
+addi sp, sp, 0x20
+mtlr r0
+blr
+
 
 
 <log.timestamp> NTSC 1.02
@@ -107,16 +116,109 @@ bl <log.print>
 # r9 = Minor Scene ID
 # r10, r11 = raw TBU, TBL
 #          - r10, r11 make a timestamp counting from epoch in jan 2000 -- unnormalized
-7D4D42E6 7D6C42E6 7C0D42E6 7C005000 40A2FFF0 7C0802A6 9421FFD0 90010034 DBE10020 3CE08000 80C700F8 3C008888 54C6F0BE 60008889 7C603016 3880FFFB
+
+OSGlobals  = 0x80000000
+Frac = 0x88888889
+xBUS_MHz   = 0xF8
+xBoot_time = 0x30D8
+# clock speed and boot time references
+
+Scene_Controller = 0x80479D30 + 0x10000
+xMajor = 0    + (Scene_Controller & 0xFFFF) - 0x10000
+xMinor = 3    + (Scene_Controller & 0xFFFF) - 0x10000
+xFrame = 0x2C + (Scene_Controller & 0xFFFF) - 0x10000
+# performance stat frame counter and scene controller IDs
+
+Scene_transitions = 0x804320CC
+# part of archive globals, apparently
+
+xHSD_PerfStat = -0x3FA8
+# r13 performance stat time base sample
+
+fScene=1; fRel=2; fBoot=3
+rScene=3; rRel=4; rBoot=5; rID=6; rTrans=7; rMajor=8; rMinor=9; rTBU=10; rTBL=11
+fTicks=1; fFloor=2; fCeil=31; rCeil=6; rOS=7; rGlobals=8
+xBoot=0xC; xRel=0x10
+
+0: mftbu rTBU
+mftbl rTBL
+mftbu r0
+cmpw r0, rTBU
+bne- 0b
+# get timestamp, correcting for unlikely (but possible) 85-second mark error
+
+mflr r0
+stwu sp, -0x30(sp)
+stw  r0,  0x30+4(sp)
+stfd f31, 0x20(sp)
+# callsafe prolog
+
+lis  rOS, OSGlobals@h
+lwz  rCeil, xBUS_MHz(rOS)
+lis r0, Frac@h
+srwi rCeil, rCeil, 2
+ori r0, r0, Frac@l # fixed point fraction
+mulhwu r3, r0, rCeil # high multiply, to apply fixed point fraction
+li r4, -5
 bl <fixed_u32.float>
-FFE00890 806730D8 808730DC 7C845810 7C635110
+# all casting functions called here have a minimal impact on volatile registers
+# - only r0, r3, r4, f0, f1 are affected
+
+fmr fCeil, f1
+lwz  r3, xBoot_time+0(rOS)
+lwz  r4, xBoot_time+4(rOS)
+subfc r4, r4, rTBL
+subfe r3, r3, rTBU
 bl <s64.float>
-FC21F824 D021000C
+fdiv f1, f1, fCeil
+# boot ticks have been sampled, casted, and normalized into a percentage in f1
+
+stfs f1, xBoot(sp)
 bl <float.u32>
-7C651B78 806DC058 2C030000 808DC05C 41820014 7C845810 7C635110
-bl <s64.float>
-FC21F824 D0210010 38600014
+mr rBoot, r3
+# rBoot is now ready for return, and fBoot is stored in stack frame
+
+lwz r3, xHSD_PerfStat+0(r13)
+cmpwi r3, 0
+lwz r4, xHSD_PerfStat+4(r13)
+beq- 0f
+  subfc r4, r4, rTBL
+  subfe r3, r3, rTBU
+  bl <s64.float>
+  fdiv f1, f1, fCeil
+  # Performance stat sample is used to create relative timestamp base
+  # - if not available (before first frame of the first scene), then use boot time instead
+
+0:
+stfs f1, xRel(sp)
+li r3, 20
 bl <float.fixed_u32>
-90610014 3D008048 80689D5C
+#  20-bit fractional component == micro-frame units
+
+stw r3, xRel+4(sp)
+lis rGlobals, Scene_Controller@h
+lwz r3, xFrame(rGlobals)
 bl <u32.float>
-80810014 C0410010 C061000C 3CE08043 89289D33 80E720CC 89089D30 54E6801E 5106442E 5126063E CBE10020 80010034 38210030 7C0803A6 4E800020
+lwz rRel, xRel+4(sp)
+lfs fRel, xRel(sp)
+lfs fBoot, xBoot(sp)
+# all timestamps are ready for return:
+#   rScene, fScene
+#   rRel,   fRel
+#   rBoot,  fBoot
+
+lis rTrans, Scene_transitions@h
+lbz rMinor, xMinor(rGlobals)
+lwz rTrans, (Scene_transitions & 0xFFFF) (rTrans)
+lbz rMajor, xMajor(rGlobals)
+rlwinm rID, rTrans, 16, 0xFFFF0000
+rlwimi rID, rMajor, 8, 0xFF00
+rlwimi rID, rMinor, 0, 0xFF
+# Scene transition ID has been compiled
+
+_return:
+lfd f31, 0x20(sp)
+lwz  r0,  0x30+4(sp)
+addi sp, sp, 0x30
+mtlr r0
+blr

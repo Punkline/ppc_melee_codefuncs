@@ -5,11 +5,20 @@ This symbols dictionary is used by arch.init to define all default "init.*" symb
 [Punkline]
 
 <arch.dict.init_default_events> NTSC 1.02
-00000003
-.long <<arch.init.event.flush>>
-.long <<arch.init.event.static>>
-.long <<arch.init.event.call>>
+_head:
+.long (_list_end - _list_start)>>2
 
+_list_start:
+  .long <<arch.init.event.flush>>
+  .long <<arch.init.event.static>>
+  .long <<arch.init.event.call>>
+
+
+  # <-- add to this list to append defaults...
+  # - or make a similar list and pass it to <arch.init> as r5
+  #   - alternatively, pass it to <arch.event> as r12 to call independently of initialization
+
+_list_end:
 
 
 
@@ -31,10 +40,29 @@ The file region for this symbol must begin with the following structure:
 - each region will have the instruction cache use updated instructions on next execution
 [Punkline]
 <arch.init.event.flush> NTSC 1.02
-48000010 696E6974 2E666C75 73680000 7C0802A6 9421FFE0 90010024 BFC10010 83CA0000 3BEAFFFC 37DEFFFF 41800018 809F0004 847F0008 7C841850
-bl <data.flush_IC>
-4BFFFFE8 BBC10010 80010024 38210020 7C0803A6 4E800020
+.include "melee"
+melee ppc, arch
+b 0f; .asciz "init.flush"; align 2; 0:
 
+prolog rParams, rCount
+lwz rCount, 0(arch.event.rParams)
+subi rParams, arch.event.rParams, 4
+
+  _for_each:
+  subic. rCount, rCount, 1
+  blt- _return
+  # terminate when count is finished
+
+  lwz r4, 0x4(rParams)
+  lwzu r3, 0x8(rParams)
+  sub r4, r3, r4
+  bl <data.flush_IC>
+  b _for_each
+  # flush each listed definition
+
+_return:
+epilog
+blr
 
 -==-
 
@@ -55,7 +83,39 @@ The file region for this symbol must begin with the following structure:
 - after table finishes execution, the table's count param is updated to prevent re-execution
 [Punkline]
 <arch.init.event.call> NTSC 1.02
-48000010 696E6974 2E63616C 6C000000 7C0802A6 9421FFE0 90010024 BFA10010 7D7F5B78 7D5E5378 83BE0000 2C1D0000 4081002C 7C1D00D0 93BE0000 37BDFFFF 4180001C 849E0004 2C040000 7C8803A6 7FE3FB78 4DA00021 4BFFFFE4 BBA10010 80010024 38210020 7C0803A6 4E800020
+.include "melee"
+melee ppc, arch
+b 0f; .asciz "init.call"; align 2; 0:
+
+prolog rArch, rParams, rCount
+mr rArch, arch.event.rArch
+mr rParams, arch.event.rParams
+lwz rCount, 0(rParams)
+cmpwi rCount, 0
+ble- _return
+# skip if there are no pending init calls
+
+neg r0, rCount
+stw rCount, 0(rParams)
+# else, update count param to indicate that these calls have been handled
+# - this prevents any subsequent attempts to initialize from calling these a second time
+# - negating instead of using null also allows this state to be undone be re-negating the count
+
+_for_each:
+  subic. rCount, rCount, 1
+  blt- _return
+  # handle each callback
+
+  lwzu r4, 4(rParams)
+  cmpwi r4, 0
+  mtlr r4
+  mr r3, rArch
+  bltlrl+   # execute only if pointer is a valid addrress
+  b _for_each
+
+_return:
+epilog
+blr
 
 
 -==-
@@ -76,4 +136,18 @@ The file region for this symbol must begin with the following structure:
 [Punkline]
 
 <arch.init.event.static> NTSC 1.02
-48000010 696E6974 2E737461 74696300 386AFFFC 808A0000 3484FFFF 4D800020 84A30008 80030004 90050000 4BFFFFEC
+.include "melee"
+melee ppc, arch
+b 0f; .asciz "init.static"; align 2; 0:
+
+regs rParams, rCount
+subi rParams, arch.event.rParams, 4
+lwz rCount, 0(arch.event.rParams)
+
+_for_each:
+  subic. rCount, rCount, 1
+  bltlr-
+  lwzu r5, 0x8(rParams)
+  lwz r0, 0x4(rParams)
+  stw r0, 0(r5)
+  b _for_each

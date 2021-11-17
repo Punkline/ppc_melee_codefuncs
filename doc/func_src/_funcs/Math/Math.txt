@@ -1,0 +1,134 @@
+-==-
+
+Extra Math Functions
+
+rsqrt  # reciprocal square root  (1 / SQRT)
+args: fValue
+<-- rRSQRT
+
+sqrt  # square root (RSQRT * fValue)
+args: fValue
+<-- rSQRT
+
+
+ps_byte_lerp  # hw accelerated lerps between arrays of bytes
+args: rFloor, rCeil, rOut, rCount, fCoef
+<-- rFloor, rCeil, rOut, fCoef
+# - rFloor, rCeil, and rOut are base pointers to arrays
+# - rCount must be even, to work in pairs
+# - results are floored and capped without rounding
+
+color.lerp  # hw accelerated lerps between direct RGBA colors
+args: rFloor, rCeil, fCoef
+<-- rFloor, rCeil, rMixed, fCoef
+# - rFloor, rCeil, and rMixed are RGBA colors, not pointers
+# - results are rounded and capped
+
+[?, Punkline]
+
+<rsqrt> NTSC 1.02
+# Calculate reciprocal square root (1 / SQRT)
+# --- args:
+# f1 = fValue
+
+# --- returns:
+# f1 = fRSQRT
+b 0x80022df8
+
+
+
+<sqrt> NTSC 1.02
+# Calculate square root from <rsqrt> * fValue
+# --- args:
+# f1 = fValue
+
+# --- returns:
+# f1 = fSQRT
+mflr r0
+stwu sp, -0x20(sp)
+stw  r0,  0x20+4(sp)
+stfs f1, 0x10(sp)
+bl <rsqrt>
+lfs f0, 0x10(sp)
+fmuls f1, f1, f0
+lwz  r0,  0x20+4(sp)
+addi sp, sp, 0x20
+mtlr r0
+blr
+
+
+
+
+<ps_byte_lerp> ALL
+# Fast Linear Interpolation between a pair of byte arrays
+# - all outputs are capped to unsigned byte range
+
+# --- args:
+# r3 = address of input A base (floor)
+# r4 = address of input B base (ceil)
+# r5 = address of output base
+# r6 = number of bytes (must be even)
+# f1 = interpolation percentage (floor...ceil)
+
+.include "melee"
+punkpc regs
+regs (r3), rFloor, rCeil, rOut, rCount, rQR
+regs (f1), fCoef, fFloor, fCeil
+lis r0, 0x0804
+mfspr rQR, 919
+ori r0, r0, 0x0804
+rlwinm rCount, rCount, 0, ~1
+mtspr 919, r0
+# set scale, and backup old scale in case it's currently in use
+# - if rCount is odd, it has been floored to an even number
+
+_for_each:
+  subic. rCount, rCount, 2
+  blt- _return
+  # return if count has been exhausted
+
+    psq_lx fFloor, rFloor, rCount, 0, 7
+    psq_lx fCeil, rCeil, rCount, 0, 7
+    ps_sub f0, fCeil, fFloor
+    ps_madds0 f0, f0, fCoef, fFloor
+    psq_stx f0, r3, rCount, 0, 7
+    b _for_each
+    # ... else quickly lerp and cap 2 byte channels, using QR hardware
+    # - lost bits are truncated (floored) without rounding
+
+_return:
+mtspr 919, rQR
+blr
+
+
+<color.lerp> ALL
+.include "melee"
+punkpc ppc
+prolog xFloor, xCeil, xOut
+regs (r3), rFloor, rCeil, rOut, rQR
+regs (f1), fCoef, fFloor, fCeil, fRound
+lis r0, 0x3B00
+stw r3, sp.xFloor(sp)
+stw r0, sp.xOut(sp)
+mfspr rQR, spr.qr7
+lis r0, 0x0804
+lfs fRound, sp.xOut(sp)
+ori r0, r0, 0x0804
+stw r4, sp.xCeil(sp)
+mtspr spr.qr7, r0
+psq_l fFloor, sp.xFloor+0(sp), 0, 7
+psq_l fCeil, sp.xCeil+0(sp), 0, 7
+ps_sub f0, fCeil, fFloor
+ps_add fFloor, fFloor, fRound
+psq_l fCeil, sp.xCeil+2(sp), 0, 7
+ps_madds0 f0, f0, fCoef, fFloor
+psq_l fFloor, sp.xFloor+2(sp), 0, 7
+psq_st f0, sp.xOut+0(sp), 0, 7
+ps_sub f0, fCeil, fFloor
+ps_add fFloor, fFloor, fRound
+ps_madds0 f0, f0, fCoef, fFloor
+psq_st f0, sp.xOut+2(sp), 0, 7
+lwz r5, sp.xOut(sp)
+mtspr spr.qr7, rQR
+epilog
+blr

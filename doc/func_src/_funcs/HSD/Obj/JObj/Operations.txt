@@ -80,9 +80,26 @@ b 0x803732E8
 # Select the Nth JObj from a skeleton using any bone in its joint family
 # r3 = root JObj (or member of family)
 # r4 = ID to select
-7C0802A6 9421FFD0 90010034 7C651B78 2C050000 40800010 7CA32B78 80A3000C 4BFFFFF0 7C852378 38810010 38C0FFFF 4CC63102
+.include "melee"
+punkpc ppc
+melee HSDObj
+prolog +0x20, xReturns
+mr r5, r3
+_for_each_JObj:
+  cmpwi r5, 0
+  bge- 0f
+  mr r3, r5
+  lwz r5, JObj.xParent(r3)
+  b _for_each_JObj
+
+0: mr r5, r4
+addi r4, sp, sp.xReturns
+li r6, -1
+crclr 6
 bl 0x80011e24
-80610010 80010034 38210030 7C0803A6 4E800020
+lwz r3, sp.xReturns(sp)
+epilog
+blr
 
 
 
@@ -101,11 +118,35 @@ bl 0x80011e24
 
 # --- returns:
 # r3 = JObj root
-7C0802A6 9421FFE0 90010024 BFC10010 DBE10018 7C9E2379 FFE00890 7C7F1B78 4180002C 57C0103A 2C040000 41820008 7C84002E 2C050000 41820008 7CA5002E 2C060000 41820008 7CC6002E
-bl <JObj.addAnimAll>
-7FE3FB78 FC20F890
-bl <JObj.reqAnimAll>
-7FE3FB78 CBE10018 BBC10010 80010024 38210020 7C0803A6 4E800020
+.include "melee"
+punkpc ppc
+melee HSDObj
+prolog rJObj, rSelect, fStart
+  mr. rSelect, r4
+  fmr fStart, f1
+  mr rJObj, r3
+  blt- _have_selection
+    slwi r0, rSelect, 2
+    cmpwi r4, 0
+    beq- 0f; lwzx r4, r4, r0; 0:
+    cmpwi r5, 0
+    beq- 0f; lwzx r5, r5, r0; 0:
+    cmpwi r6, 0
+    beq- 0f; lwzx r6, r6, r0; 0:
+    # get nth index, if a positive selection index was given
+
+  _have_selection:
+  bl <JObj.addAnimAll>
+  mr r3, rJObj
+  fmr f1, fStart
+  bl <JObj.reqAnimAll>
+  # sets the starting frame of every JObj->AObj in the skeleton
+
+_return:
+mr r3, rJObj
+epilog
+blr
+
 
 
 
@@ -126,10 +167,26 @@ bl <JObj.reqAnimAll>
 
 # --- returns:
 # r3 = JObj root
-9421FFF0 90E10008 E021C008 38210010
+stwu sp, -0x10(sp)
+  stw r7, 0x8(sp)
+  psq_l f1, 0x8(sp), 1, 4  # fast-cast QR4 == unsigned hword ints (no mantissa)
+addi sp, sp, 0x10
 b <JObj.set_AnimJoint>
+# end temporary frame, and branch into real funciton using floating point args
+
 
 
 <JObj.check_DirtySub> NTSC 1.02
-80030014 5400018D 4C820020 54000211 4082000C 54000673 4C820020
+# Flags JObj matrix for animation transform updates (dirty mtx)
+# --- args:
+# r3 = JObj
+lwz r0, 0x14(r3)
+rlwinm. r0, r0, 0, 0x02000000
+
+bnelr-
+rlwinm. r0, r0, 0, 0x00800000
+bne- 0f
+  rlwinm. r0, r0, 0, 0x00000040
+  bnelr-
+0:
 b <JObj.setMtxDirtySub>

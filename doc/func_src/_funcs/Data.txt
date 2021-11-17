@@ -1,0 +1,497 @@
+-==-
+
+Data Functions
+
+data.strcmp  # Compare 2 null-terminated strings
+args: rA, rB
+ <-- rBool
+
+data.cmp  # compare 2 lengths of binary
+args: rA, rB, rSize
+ <-- rBool
+
+data.point  # relocate various input types as pointer outputs
+args: rAddr   # type 1: Address of branch instruction (or pointer)
+args: rOffset, rAddr  # type 2: relocation from pointer
+ <-- rPoint, rBase, rOffset
+ <-- cr1.lt: bValidAddr,  cr1.gt: bIsBranch
+# - all output pointers from branches are considered valid
+
+
+data.zero  # fill out given area with zero
+args: rData, rSize
+
+data.fill  # fill out given area with a byte value
+args: rData, rFill, rSize
+
+data.copy  # Copies data from r4 over to r3
+args: rDest, rSource, rSize
+# - ARAM addresses are accepted for rSource/rDest
+# - DMA request for ARAM is slow, but faster than DVD
+
+data.copy_async  # Use async DMA queue with custom callback
+args: rDest, rSource, rSize, rCallback, rCallbackArg
+# - intended for ARAM <> SRAM copies
+# - rCallback will be executed once copy has finished
+
+  (sync callback arguments)
+  args: rCallbackArg
+
+
+data.async_info  # return info about pending async copies
+args: rQuery  # for matching rDest, rSource, rCB, or rArg
+ <-- rAsync, rDest, rSource, rSize, rCB, rArg, rGlob, rQuery
+ <-- cr1.lt: bNotSynced,  cr1.gt: bMatch,  cr1.eq: bSynced
+
+ rAsync  # Async ARAM Copy queue info struct...
+0x00 : POINT : to next info struct in queue
+0x04 : WORD  : Link ID -- 0=free, 1=async, 2=synced
+0x08 : POINT : to other struct + 8 (no header) ???
+0x0C : POINT : to header (offset 0x00)
+0x10 : FLAG? : usually '1'
+0x14 : ???
+0x18 : POINT : to Source address, for copy  (SRAM or DRAM)
+0x1C : POINT : to Destination address       (SRAM or DRAM)
+0x20 : WORD  : Size of remaining copy job (in bytes)
+0x24 : POINT : to Event Handler  (used by DMA queue?)
+0x28 : POINT : to Sync Callback  (provided by user)
+0x2C : WORD  : Callback Argument (for sync callback)
+
+rGlob # ARAM Async Info Globals...
+# - these correspond with the Link ID:
+0x00 : POINT : to list of currently free descriptors
+0x04 : POINT : to list of currently queued descriptors
+0x08 : POINT : to list of synced descriptors ready for callback
+
+data.sync_to  # sync to a matching .async_info query
+args: rQuery
+data.sync_until  # sync until a minimum of N queued asyncs
+args: rCount
+data.sync_next  # sync until the next queued async begins
+data.sync  # sync all queued async data copies
+# - all asyncs automatically sync when 4 or more asyncs are in queue
+# - syncing will cause the CPU to stall until data copy completes
+
+data.flush_DC  # flush data cache
+args: rAddr, rSize
+# - prevents race conditions with hardware accessing SRAM
+
+data.flush_IC  # flush instruction cache
+args: rAddr, rSize
+# - forces written ppc instructions to be newly-interpreted
+
+[Punkline]
+<data.point> NTSC ALL
+# relocate various input types as pointer outputs
+
+# --- args (syntax 1):
+# r3 = rAddr    -- address of branch instruction, pointer, or byte offset from rAddr
+# --- args (syntax 2):
+# r3 = rOffset  -- offset from base address
+# r4 = rAddr    -- base address
+
+# --- returns:
+# r3 = rPoint   -- the resulting pointer address value
+# r4 = rAddr    -- the base address used for this pointer
+# r5 = rOffset  -- the offset used for this base address
+# cr1.lt = bValidAddr  -- the resulting pointer is a valid address
+# cr1.gt = bIsBranch   -- the given input was a branch instruction
+.include "melee"; punkpc
+lt=0; gt=1; eq=2; bIsValid=4; bIsBranch=5
+lis r0, 0x8180
+cmpw r3, r0
+crclr bIsBranch
+mr r5, r3
+bge- 0f
+
+  # if input r3 is an address
+  lwz r5, 0(r3)  # load value
+  cmpw r5, r0    # check if value is addr
+  mr r4, r3      # (assume given address is base address)
+  bge+ 1f
+
+    # if loaded value is an address
+    mr r4, r5
+    li r5, 0
+    b 0f  # then just use that address without an offset
+
+  1: # if loaded value isn't an address
+  rlwinm r3, r5, 0xC0000000
+  cmpwi r3, 4  # check if it's a branch instruction opcode
+  crmove bIsBranch, eq
+  bne- 0f
+
+    # if loaded value is a branch
+    rlwinm r3, r5, 6, 0xFFFFFF00
+    srawi r5, r3, 6  # then mask/extract signed word offset
+    # else, just treat loaded value like a signed byte offset
+
+0:
+add r3, r4, r5
+cmpw r3, r0
+crmove bIsValid, lt
+blr  # return updated cr1 bools, r3 pointer, and base/offset values
+
+
+
+<data.zero> NTSC 1.02
+b 0x8000c160
+<data.fill> NTSC 1.02
+b 0x80003130
+<data.copy> NTSC 1.02
+cmpwi r3, 0
+bge- 0f
+  cmpwi r4, 0
+  bge- 0f
+    b 0x800031f4
+0: li r6, -1
+b <data.copy_async>
+# using -1 as callback arg causes auto-sync callback to be used
+
+
+
+<data.copy_async> NTSC 1.02
+# Copies data from r4 over to r3, allowing for ARAM addresses and sync callbacks
+# - If a -1 is used in place of a callback address, this will become a sync copy instead of async
+# - otherwise, the CPU will not wait for ARAM on return, allowing for immediate action
+#   - the data being copied however will not be available for processing until ARAM has synced
+
+# --- args:
+# r3 = rCopy  - Copy data TO this address
+# r4 = rFrom  - Copy data FROM this address
+# r5 = rSize
+# r6 = rSync  - sync callback, executes once the ARAM copy has finished
+# r7 = rArg   - sync callback argument, gets passed as r3 to rSync when executed
+
+
+max_count = 4
+# this is the numebr of async queue slots (out of ~8) to allow for simultaneous use
+# - if more than this many reads are queued, then func will wait to sync before starting new stream
+
+_func_copy_async:
+mflr r0
+stwu sp, -0x40(sp)
+stw  r0,  0x40+4(sp)
+addi r10, sp, 0x10
+stswi r3, r10, 0x1C
+  li r3, max_count
+  bl <data.sync_until>
+  addi r10, sp, 0x10
+lswi r3, r10, 0x1C
+
+b _end_of_data
+# - branch over inline data
+
+  _get_data: blrl
+    _sync_callback:
+    li r0, 1
+    stw r0, 0(r3)
+    blr # set flag once synced
+
+  _data:
+  .long 0
+
+_end_of_data:
+cmpwi r6, -1
+bne- _async
+# -1 is a special keyword for auto-syncing (used by <copy.ARAM_sync>, and <copy>)
+
+  _auto_sync:
+  bl _get_data
+  mflr r6
+  li r0, 0
+  addi r7, r6, _data - _sync_callback
+  stw r0, 0(r7)
+  stw r7, 0x10(sp)
+  bl _func_ARAM_write
+  # if -1 was detected, we set up an auto-sync callback
+
+    _still_syncing:
+    lwz r3, 0x10(sp)
+    lwz r0, 0(r3)
+    cmpwi r0, 0
+    bne- _return
+      b _still_syncing
+      # loop until synced
+
+_async:
+bl _func_ARAM_write
+# custom callbacks can handle sync on their own
+
+_return:
+lwz  r0,  0x40+4(sp)
+addi sp, sp, 0x40
+mtlr r0
+blr
+
+_func_ARAM_write:
+mflr r0
+lis r8, 0x8043
+stw r0, 0x0004 (sp)
+stwu sp, -0x0058 (sp)
+stmw r23, 0x0034 (sp)
+mr  r25, r4  # r25 = Source of copy
+mr. r26, r3  # r26 = Destination of copy
+mr  r27, r5  # r27 = Size
+mr  r23, r6  # r23 = Callback
+mr  r24, r7  # r24 = Callback Argument
+ori r31, r8, 0x16c0
+# r31 = base of ARAM DMA queue structure -- 804316c0
+
+mr r4, r27   # r4 = size to invalidate or store in Data Cache (DC)
+bge- 0f
+
+  # --- ARAM to RAM
+  li r29, 1
+  mr r3, r26     # r3 = RAM destination,  r4 = size
+  bl 0x803447DC  # DC Invalidate
+  b 1f
+
+  0: # --- RAM to ARAM
+  li r29, 0
+  mr r3, r25     # r3 = RAM source,  r4 = size
+  bl 0x80344840  # DC Store
+
+1: # r29 = copy op type, for queue request call arguments
+# (we also swap the source/destination regs if writing, so that op type correctly selects them)
+
+bl 0x80347364  # disable interrupts
+addi r30, r3, 0
+# r30 = backup interrupt flags
+
+lwz r28, 0x1e0(r31)   # r28 = old queue pointer
+stw r23, 0x28 (r28) # storing callback
+stw r24, 0x2C (r28) # storing callback arg
+mr r23, r29
+# r23 and r24 are now safe to use
+
+addi r29, r31, 0x1e0  # r29 = address of queue pointer
+lwz r0, 0 (r28)       # r0 = link from old pointer
+stw r0, 0 (r29)       # --- push stack with link from old pointer
+
+addi r3, r31, 0x1e4
+b 0f # seems to be some other list pointer at 0x4 of element
+
+1:
+mr r3, r0
+
+0: lwz r0, 0 (r3)   # follow other list links until a null terminator is found
+  cmplwi r0, 0
+  bne+ 1b
+  # r3 = last element in list
+
+stw r28, 0 (r3)  # store old pointer in 0x4 of last element
+li r3, 0
+li r4, 1  # State of async
+stw r3, 0x0(r28)
+stw r4, 0x4(r28)  # some kind of metadata for informing the queue request
+
+lis r3, 0x8001
+addi r10, r3, 0x4AC4  # r10 = 80014AC4  -- callback event handler, for input callback and arg
+addi r3, r28, 8  # r3 = base starting at 0x8 of element
+mr r4, r28     # r4 = base of element (the metadata we just created)
+mr r5, r23     # r5 = copy operation type (0 = write to ARAM,  1 = read from ARAM)
+xori r6, r5, 1 # r6 = inverted type
+mr r7, r25     # r7 = source
+mr r8, r26     # r8 = destination
+mr r9, r27     # r9 = size
+b 0x80014c90  # branch into the middle of the ARAM read func from the Archive library
+# - the stack frame and register context has been carefully designed to mimic this function
+
+<data.strcmp> NTSC 1.02
+b 0x803258e8
+<data.cmp> NTSC 1.02
+b 0x803258a8
+<data.flush_DC> NTSC 1.02
+b 0x8034480c
+<data.flush_IC> NTSC 1.02
+b 0x8000543c
+
+
+
+<data.async_info> NTSC 1.02
+# Get info about queued ARAM DMA copy jobs based on input query
+
+# --- args:
+# r3 = rQuery -- compared against rAsync, rDest, rSource, rCB, rArg for matches
+
+# --- returns:
+# cr1.lt = bNotSynced  -- 'matched async is not done copying'
+# cr1.gt = bMatch      -- 'match found'
+# cr1.eq = bSynced     -- 'no match found' (if input was valid, this means it synced already)
+# r3 = rAsync   -- async info (null if no match)
+# r4 = rDest   -- copy destination
+# r5 = rSource -- copy source
+# r6 = rSize   -- copy size
+# r7 = rCB     -- callback argument
+# r8 = rArg    -- callback address
+# r9 = rGlob   -- global pointers
+# r10 = rQuery -- (given query)
+
+# --- ARAM Async Info descriptor - 10 (?) 0x30-byte structures starting at 0x804316c0
+# 0x00 : POINT : to next info struct in queue
+# 0x04 : WORD  : Link ID -- 0=free, 1=async, 2=synced
+# 0x08 : POINT : to other struct + 8 (no header) ???
+# 0x0C : POINT : to header (offset 0x00)
+# 0x10 : FLAG? : usually '1'
+# 0x14 : ???
+# 0x18 : POINT : to Source address, for copy  (SRAM or DRAM)
+# 0x1C : POINT : to Destination address       (SRAM or DRAM)
+# 0x20 : WORD  : Size of remaining copy job (in bytes)
+# 0x24 : POINT : to Event Handler  (used by DMA queue?)
+# 0x28 : POINT : to Sync Callback  (provided by user)
+# 0x2C : WORD  : Callback Argument (for sync callback)
+
+# --- ARAM Async Info Globals - starting at 0x804316c0 + 0x1E0
+# - these correspond with the Link ID:
+# 0x00 : POINT : to list of currently free descriptors
+# 0x04 : POINT : to list of currently queued descriptors
+# 0x08 : POINT : to list of synced descriptors ready for callback
+
+
+.include "melee"
+punkpc ppc
+melee mem
+regs (r3), +1, rAsync, rDest, rSource, rSize, rCB, rArg, rGlob, rQuery
+enum (cr1.lt), bNotSynced, bMatch, bSynced   # returned bools
+bLast = bNotSynced
+mr rQuery, r3
+cmpwi rQuery, -1
+load rGlob, data.async_glob.addr
+lwz r0, data.async_glob.xAsync(rGlob)
+crclr bMatch
+crmove bLast, eq
+# if the query is given as -1, then return last available async in queue
+
+_for_each_pending:
+  mr. rAsync, r0
+  bge- _return
+  # return without updating default cr1 values if no match is found in queued
+
+  lwz r0, data.async_info.xNext(rAsync)
+  cmpwi r0, 0
+  crandc bMatch, bLast, lt
+  cmpw rAsync, rQuery
+  cror bMatch, bMatch, eq
+  lwz rDest, data.async_info.xDest(rAsync)
+  cmpw rDest, rQuery
+  lwz rSource, data.async_info.xSource(rAsync)
+  cror bMatch, bMatch, eq
+  cmpw rSource, rQuery
+  lwz rCB, data.async_info.xSyncCB(rAsync)
+  cror bMatch, bMatch, eq
+  cmpw rCB, rQuery
+  lwz rArg, data.async_info.xSyncArg(rAsync)
+  cror bMatch, bMatch, eq
+  cmpw rArg, rQuery
+  lwz rSize, data.async_info.xSize(rAsync)
+  cror bMatch, bMatch, eq
+  bf+ bMatch, _for_each_pending
+
+_return:
+crnot bSynced, bMatch
+crnot bNotSynced, bSynced
+# set bools according to bMatch
+# - these are formatted to be similar to DVD async_info returns, even though they are redundant...
+
+blr
+
+
+
+<data.sync> NTSC 1.02
+li r3, -1
+b <data.sync_to>
+
+<data.sync_next> NTSC 1.02
+lis r3, 0x8043
+lwz r3, 0x16c0+0x1e4(r3)
+b <data.sync_to>
+
+<data.sync_to> NTSC 1.02
+.include "melee"
+punkpc ppc
+melee mem
+prolog rMSR
+
+mfmsr rMSR
+rlwinm r0, rMSR, 0, ~0x8000
+mtmsr r0
+bl <data.async_info>
+# get async info without interrupts enabled, to prevent messing up return epilog
+
+bt- data.async_info.bSynced, _return
+# skip if query wasn't found, or currenty in the middle of sync event...
+
+  ori r0, rMSR, 0x8000
+  mtmsr r0
+  # else enable interrupts while syncing in continuous thread...
+
+  _while_not_synced:
+    lwz r0, data.async_glob.xSynced(data.async_info.rGlob)
+    cmpwi r0, 0
+    blt- _return
+    # abort if a sync event is ready...
+
+    lwz r0, data.async_info.xStatus(data.async_info.rAsync)
+    cmpwi r0, 1
+    beq+ _while_not_synced
+    # wait until status flag changes on sync...
+
+_return:
+mtmsr rMSR
+epilog
+blr
+
+
+
+<data.sync_until> NTSC 1.02
+.include "melee"
+punkpc ppc
+melee mem
+
+regs (r3), +1, rTarget, rBase, rCount, rX,
+load rBase, data.async_info.addr
+
+_try_again:
+lwz r0, (data.async_glob.addr + data.async_glob.xSynced) - data.async_info.addr (rBase)
+cmpwi r0, 0
+bltlr-
+# skip if currently in sync event...
+
+li rCount, 0
+li rX, (8*data.async_info.size) + data.async_info.xStatus
+  _while_target_not_reached:
+    subic. rX, rX, data.async_info.size
+    blt- 0f
+      lwzx r0, rBase, rX
+      cmpwi r0, 1
+      bne- _while_target_not_reached
+        addi rCount, rCount, 1
+        b _while_target_not_reached
+        # count the number of pending async copies
+  0:
+  cmpw rTarget, rCount
+  blt- _try_again
+  # if the count > target, then wait until some have synced by trying again
+
+blr
+
+
+<data.flush_DC> NTSC 1.02
+# Flush the data cache in given range
+# - useful for some forms of hardware reads, like GX indexing
+
+# --- args:
+# r3 = start address
+# r4 = number of bytes to flush
+b 0x8034480c
+
+
+<data.flush_IC> NTSC 1.02
+# Flush the instruction cache in given range
+# - required if writing new instructions over old instructions
+
+# --- args:
+# r3 = start address
+# r4 = number of bytes to flush
+b 0x8000543c

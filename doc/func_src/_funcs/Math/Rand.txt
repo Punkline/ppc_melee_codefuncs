@@ -64,10 +64,17 @@ b 0x80380580
 
 # --- returns:
 # f1 = fRand
-7C0802A6 9421FFE0 90010024 D0210010
+mflr r0
+stwu sp, -0x20(sp)
+stw r0, 0x20+4(sp)
+stfs f1, 0x10(sp)
 bl <rand.float>
-C0010010 EC210032 80010024 38210020 7C0803A6 4E800020
-
+lfs f0, 0x10(sp)
+fmuls f1, f1, f0
+lwz r0, 0x20+4(sp)
+addi sp, sp, 0x20
+mtlr r0
+blr
 
 
 
@@ -79,6 +86,32 @@ C0010010 EC210032 80010024 38210020 7C0803A6 4E800020
 
 # --- returns
 # r3 = rOut
-7C0802A6 9421FFE0 90010024 BFA10010 7C7E1B78 3BE3FFFE 7C9D2379 40810028 3C600002 3863FFFF
-bl <rand.max_int>
-37BDFFFE 41800010 B47F0002 4181FFE8 48000008 987F0002 7FC3F378 BBA10010 80010024 38210020 7C0803A6 4E800020
+.include "melee"
+punkpc ppc
+prolog rOut, rBuffer, rSize
+
+mr rBuffer, r3
+addi rOut, r3, -2
+mr. rSize, r4
+ble- _return
+# only fill if a length was given
+
+_for_n_hwords:
+  lis r3, 2
+  subi r3, r3, 1  # a 17-bit 2's complement modulo should provide good entropy for hword fill
+  bl <rand.max_int>
+  subic. rSize, rSize, 2
+  blt- _for_odd_byte
+  sthu r3, 0x2(rOut)
+  bgt+ _for_n_hwords
+  b _return
+
+_for_odd_byte:
+stb r3, 0x2(rOut)
+# we fill with hwords, but string might be unaligned to hwords
+# - this extra byte at the end handles this case, if it applies
+
+_return:
+mr r3, rBuffer
+epilog
+blr

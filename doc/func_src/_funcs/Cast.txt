@@ -50,83 +50,155 @@ float.fixed_u32  # r3 = fraction bit count
 float.fixed_s32  # r3 = fraction bit count
 [Punkline]
 <s64.float> NTSC 1.02
-7C0802A6 9421FF00 90010104 9141002C 39410010 7C6AE5AA
+mflr r0
+stwu sp, -0x100(sp)
+stw  r0,  0x100+4(sp)
+stw r10, 0x2C(sp)
+addi r10, sp, 0x10
+stswi r3, r10, 0x1C
 bl 0x80322da0
-39410010 7C6AE4AA 8141002C 80010104 38210100 7C0803A6 4E800020
-
+addi r10, sp, 0x10
+lswi r3, r10, 0x1C
+lwz r10, 0x2C(sp)
+lwz  r0,  0x100+4(sp)
+addi sp, sp, 0x100
+mtlr r0
+blr
 
 
 <u32.float> ALL
-38800000
+li r4, 0
 b <fixed_u32.float>
 <u24.float> ALL
-38800008
+li r4, 8
 b <fixed_u32.float>
 <u16.float> ALL
-38800010
+li r4, 16
 b <fixed_u32.float>
 <u8.float> ALL
-38800018
+li r4, 24
 b <fixed_u32.float>
 <u0.float> ALL
-38800020
+li r4, 32
 b <fixed_u32.float>
 <s32.float> ALL
-38800000
+li r4, 0
 b <fixed_s32.float>
 <s24.float> ALL
-38800008
+li r4, 8
 b <fixed_s32.float>
 <s16.float> ALL
-38800010
+li r4, 16
 b <fixed_s32.float>
 <s8.float> ALL
-38800018
+li r4, 24
 b <fixed_s32.float>
 <fixed_s32.float> ALL
-3C008000
+lis r0, 0x8000
 b <int.__fixed_cast>
 <fixed_u32.float> ALL
-38000000
+li r0, 0
 b <int.__fixed_cast>
 <int.__fixed_cast> ALL
 # handles signed/unsigned int->float with custom exponent
-9421FFE0 5484A016 9001000C 3C844330 7C600278 90810008 C8010008 9001000C C8210008 38210020 FC210028 4E800020
+stwu sp, -0x20(sp)
+  slwi r4, r4, 20
+  stw r0, 0xC(sp)
+  addis r4, r4, 0x4330
+  xor r0, r3, r0
+  stw r4, 0x8(sp)
+  lfd f0, 0x8(sp)
+  stw r0, 0xC(sp)
+  lfd f1, 0x8(sp)
+addi sp, sp, 0x20
+fsub f1, f1, f0
+blr
 
 
 <float.u32> ALL
-38600000
+li r3, 0
 b <float.fixed_u32>
 <float.u24> ALL
-38600008
+li r3, 8
 b <float.fixed_u32>
 <float.u16> ALL
-38600010
+li r3, 16
 b <float.fixed_u32>
 <float.u8> ALL
-38600018
+li r3, 24
 b <float.fixed_u32>
 <float.u0> ALL
-38600020
+li r3, 32
 b <float.fixed_u32>
 <float.s32> ALL
-38600000
+li r3, 0
 b <float.fixed_s32>
 <float.s24> ALL
-38600008
+li r3, 8
 b <float.fixed_s32>
 <float.s16> ALL
-38600010
+li r3, 16
 b <float.fixed_s32>
 <float.s8> ALL
-38600018
+li r3, 24
 b <float.fixed_s32>
 <float.fixed_s32> ALL
-3C004200
+lis r0, 0x4200
 b <int.__fixed_cast>
 <float.fixed_u32> ALL
-38000000
+li r0, 0
 b <float.__fixed_cast>
 <float.__fixed_cast> ALL
 # handles signed/unsigned float->ints with custom exponent
-9421FFE0 2C000000 D8210008 80810008 5463A016 7C841A14 3C603F00 90810008 C8210008 90610010 C0010010 FC21002A 41A20054 3000FFFF 3C60FFF0 90010008 9061000C 38000000 3C604F80 90010010 90610014 C0010010 C8410008 FC01006E FC220828 FC21102E C0410014 FC011000 FC011028 FC20082E 38000000 41A00008 3C008000 FC20081E D8210008 8061000C 7C630278 38210020 4E800020
+stwu sp, -0x20(sp)
+  cmpwi r0, 0
+  stfd f1, 0x8(sp)
+  lwz r4, 0x8(sp)
+  slwi r3, r3, 20
+  add r4, r4, r3
+  lis r3, 0x3F00
+  stw r4, 0x8(sp)
+  lfd f1, 0x8(sp)
+  stw r3, 0x10(sp)
+  # apply modified scale to exponent of double-precision floating point
+
+  lfs f0, 0x10(sp)
+  fadd f1, f1, f0
+  # add 0.5 so that floored integer is rounded on resulting cast
+
+  beq+ 0f
+    subic r0, r0, 1
+    lis r3, 0xFFF0
+    stw r0, 0x8(sp)  # 0x8 = fd Cap
+    stw r3, 0xC(sp)
+    li r0, 0
+    lis r3, 0x4f80
+    stw r0, 0x10(sp) # 0x10 = fs Zero
+    stw r3, 0x14(sp) # 0x14 = fs overflow
+
+    lfs f0, 0x10(sp)
+    lfd f2, 0x8(sp)
+    fsel f0, f1, f1, f0
+    fsub f1, f2, f1
+    fsel f1, f1, f0, f2
+    # Cap has been applied
+
+    lfs f2, 0x14(sp)
+    fcmpu cr0, f1, f2
+    fsub f0, f1, f2
+    fsel f1, f0, f0, f1
+    # Displace if signed cast would overflow
+
+    li r0, 0
+    blt+ 0f
+      lis r0, 0x8000
+      # r0 will be XORed into resulting int
+
+  0:
+  fctiwz f1, f1
+  stfd f1, 0x8(sp)
+  lwz r3, 0xC(sp)
+  xor r3, r3, r0
+addi sp, sp, 0x20
+blr
+
